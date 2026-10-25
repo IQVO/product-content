@@ -33,9 +33,10 @@ func TestMigrationsGoUpDownUp(t *testing.T) {
 		t.Fatalf("up: %v", err)
 	}
 	up := tableCount(t, url)
-	// 0001 creates 9, 0002 adds none, 0003 adds shopper_addresses (NG1).
-	if up != 11 {
-		t.Fatalf("after up: %d tables, want 11", up)
+	// 0001 creates product_contents, category_trees, catalog_item_view,
+	// processed_events, idempotency_keys and outbox_events.
+	if up != 6 {
+		t.Fatalf("after up: %d tables, want 6", up)
 	}
 	if err := postgres.RunMigrations(url); err != nil {
 		t.Fatalf("a second up must be a no-op: %v", err)
