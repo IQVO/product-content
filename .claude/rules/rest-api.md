@@ -5,22 +5,32 @@ paths:
   - "apis/openapi/**"
 ---
 
-<!-- TEMPLATE (warehouse-harness-template v2): fill in for THIS repo. -->
 # REST API (inbound adapter)
 
-List every route -> use case mapping, kept in sync with `apis/openapi.yaml`
-(the `docs-api-drift` CI job fails if generated docs disagree with this
-file's own spec, but this file itself is documentation for an agent, not
-generated -- keep it manually accurate).
+Every route -> use case mapping, kept in sync with `apis/openapi.yaml` (routes live
+in `internal/adapters/inbound/http/server.go`). This file is documentation for an
+agent, not generated: keep it manually accurate.
 
-- `<METHOD> <path>`    -> `<UseCaseName>`
-- ...
+- `POST /product-contents` -> `CreateProductContent`
+- `GET /product-contents` -> `ListProductContents` (paged, `after` / `limit`)
+- `GET /product-contents/{catalogItemId}` -> `GetProductContent`
+- `POST /product-contents/{catalogItemId}:revise` -> `ReviseContent` (ReviseDraft for a DRAFT, ReviseContent for PUBLISHED)
+- `POST /product-contents/{catalogItemId}:publish` -> `PublishContent`
+- `POST /product-contents/{catalogItemId}:retire` -> `RetireContent`
+- `POST /product-contents/{catalogItemId}:discard` -> `DiscardDraft`
+- `POST /categories` -> `CreateCategory`
+- `GET /categories` -> `ListCategories`
+- `POST /categories:publish` -> `PublishCategoryTree`
+- `POST /categories/{categoryId}:move` -> `MoveCategory`
+- `POST /categories/{categoryId}:rename` -> `RenameCategory`
+- `GET /healthz` (liveness) and `GET /readyz` (drain gate + Postgres ping + Kafka metadata)
 
 ## Conventions
 
-- Error shape: <RFC 7807 problem+json? custom envelope? state it>.
-- Auth: <this fleet's fleet-wide REST+MCP auth was deliberately reverted
-  2026-09-11 and is unauthenticated pending a fresh decision -- state
-  whichever is true for this repo, and keep
-  `internal/architecture/fitness_test.go`'s TestNoAuthMiddlewareReintroduced
-  in sync if that ever changes>.
+- Error shape: RFC 9457 `application/problem+json`, `type` = `/problems/<slug>`
+  (catalogue in `errors.go`); every POST needs an `Idempotency-Key` (missing = 400
+  `idempotency-key-required`, same key with another body = 422
+  `idempotency-key-reused`, replay marked `Idempotent-Replayed: true`); a NUL in the
+  path, query or body is a 400 before any key is recorded.
+- Auth: none. Fleet-wide auth was deliberately reverted 2026-09-11; do not add
+  bearer/JWT/API-key middleware (`TestNoAuthMiddlewareReintroduced`).
