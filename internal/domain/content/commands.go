@@ -37,15 +37,15 @@ func checkFields(b Body) error {
 	}
 	for i, s := range b.Bullets {
 		if !shared.ValidTextN(s, MaxBullet) {
-			return shared.Invalid("bullet %d must be non-blank trimmed text of at most %d characters", i+1, MaxBullet)
+			return shared.Invalid("bullets[%d] must be non-blank trimmed text of at most %d characters", i, MaxBullet)
 		}
 	}
 	for i, a := range b.Attributes {
 		if !shared.ValidTextN(a.Name, MaxAttrName) || !shared.ValidTextN(a.Value, MaxAttrValue) {
-			return shared.Invalid("attribute %d needs a name (at most %d) and a value (at most %d)", i+1, MaxAttrName, MaxAttrValue)
+			return shared.Invalid("attributes[%d] needs a name (at most %d) and a value (at most %d)", i, MaxAttrName, MaxAttrValue)
 		}
 		if a.Unit != "" && !shared.ValidTextN(a.Unit, MaxAttrUnit) {
-			return shared.Invalid("attribute %d unit must be at most %d characters", i+1, MaxAttrUnit)
+			return shared.Invalid("attributes[%d] unit must be at most %d characters", i, MaxAttrUnit)
 		}
 	}
 	if err := checkMedia(b.Media); err != nil {
@@ -61,17 +61,17 @@ func checkMedia(media []Media) error {
 	seen := map[string]bool{}
 	for i, m := range media {
 		if !shared.ValidID(m.MediaID) || seen[m.MediaID] {
-			return shared.Invalid("medium %d needs a unique valid mediaId", i+1)
+			return shared.Invalid("media[%d] needs a unique valid mediaId", i)
 		}
 		seen[m.MediaID] = true
 		if !validURL(m.URL) {
-			return shared.Invalid("medium %d url must be an absolute http(s) URL of at most %d characters", i+1, MaxURL)
+			return shared.Invalid("media[%d] url must be an absolute http(s) URL of at most %d characters", i, MaxURL)
 		}
 		if !shared.ValidTextN(m.AltText, MaxAltText) {
-			return shared.Invalid("medium %d needs altText of at most %d characters", i+1, MaxAltText)
+			return shared.Invalid("media[%d] needs altText of at most %d characters", i, MaxAltText)
 		}
 		if !m.Role.Valid() {
-			return shared.Invalid("medium %d role must be PRIMARY or GALLERY", i+1)
+			return shared.Invalid("media[%d] role must be PRIMARY or GALLERY", i)
 		}
 	}
 	return nil

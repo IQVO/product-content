@@ -1,6 +1,7 @@
 package content
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 
@@ -101,3 +102,34 @@ func TestRestoreRejectsCorruptRows(t *testing.T) {
 }
 
 func with(s Snapshot, f func(*Snapshot)) Snapshot { f(&s); return s }
+
+func TestRestoreAcceptsCollectionsAtTheirBounds(t *testing.T) {
+	b := Body{}
+	for i := 0; i < MaxBullets; i++ {
+		b.Bullets = append(b.Bullets, "b")
+	}
+	for i := 0; i < MaxAttributes; i++ {
+		b.Attributes = append(b.Attributes, Attribute{Name: "n", Value: "v"})
+	}
+	for i := 0; i < MaxMedia; i++ {
+		b.Media = append(b.Media, Media{MediaID: "m" + string(rune('a'+i)), URL: "https://static.example.invalid/x", AltText: "a", Role: RoleGallery})
+	}
+	snap := mustCreate(t, b).Snapshot()
+	if _, err := Restore(snap); err != nil {
+		t.Fatalf("collections at their bounds restore: %v", err)
+	}
+	for name, mut := range map[string]func(*Snapshot){
+		"bullets":    func(s *Snapshot) { s.Body.Bullets = append(s.Body.Bullets, "x") },
+		"attributes": func(s *Snapshot) { s.Body.Attributes = append(s.Body.Attributes, Attribute{Name: "n", Value: "v"}) },
+		"media": func(s *Snapshot) {
+			s.Body.Media = append(s.Body.Media, Media{MediaID: "zz", URL: "https://static.example.invalid/x", AltText: "a", Role: RoleGallery})
+		},
+	} {
+		s := mustCreate(t, b).Snapshot()
+		mut(&s)
+		_, err := Restore(s)
+		if !errors.Is(err, shared.ErrInvalidSnapshot) {
+			t.Fatalf("%s over the bound: %v", name, err)
+		}
+	}
+}

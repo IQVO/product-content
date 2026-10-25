@@ -417,3 +417,36 @@ func eq[T comparable](t *testing.T, what string, got, want T) {
 		t.Errorf("%s = %v, want %v", what, got, want)
 	}
 }
+
+func TestCategoryAtTheFrontOfTheTreeIsNotSpecial(t *testing.T) {
+	tr := build(t) // "home" was created first
+	if _, _, err := tr.RenameCategory("home", "House", t1); err != nil {
+		t.Fatalf("rename the first category: %v", err)
+	}
+	if got := paths(tr)["bottles"]; got != "House/Kitchen/Bottles" {
+		t.Fatalf("path = %q", got)
+	}
+	if _, _, err := tr.MoveCategory("home", "outdoor", t1); err != nil {
+		t.Fatalf("move the first category: %v", err)
+	}
+	if got := paths(tr)["bottles"]; got != "Outdoor/House/Kitchen/Bottles" {
+		t.Fatalf("path = %q", got)
+	}
+	// home (index 0) now sits under outdoor: outdoor can not move under it.
+	_, _, err := tr.MoveCategory("outdoor", "home", t2)
+	wantErr(t, err, ErrCategoryCycle)
+	_, _, err = tr.MoveCategory("outdoor", "bottles", t2)
+	wantErr(t, err, ErrCategoryCycle)
+}
+
+func TestRestoreAcceptsFourLevels(t *testing.T) {
+	snap := Snapshot{Version: 1, UpdatedAt: t0, Categories: []Category{
+		{ID: "a", Name: "A", Path: "A"},
+		{ID: "b", ParentID: "a", Name: "B", Path: "A/B"},
+		{ID: "c", ParentID: "b", Name: "C", Path: "A/B/C"},
+		{ID: "d", ParentID: "c", Name: "D", Path: "A/B/C/D"},
+	}}
+	if _, err := Restore(snap); err != nil {
+		t.Fatalf("four levels are allowed: %v", err)
+	}
+}

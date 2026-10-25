@@ -46,18 +46,19 @@ func checkSnapshot(s Snapshot, t *Tree) error {
 	return nil
 }
 
-// checkAncestry walks up from c; reaching more ancestors than there are
-// categories means the parents form a cycle. It runs for every node before
-// any check that follows parent links, so those can not loop.
+// checkAncestry walks up from c; meeting a node twice means the parents form a
+// cycle. It runs for every node before any check that follows parent links, so
+// those can not loop.
 func checkAncestry(t *Tree, c Category) error {
-	steps := 0
+	seen := map[string]bool{c.ID: true}
 	for id := c.ParentID; id != ""; id = t.cats[t.index(id)].ParentID {
 		if t.index(id) < 0 {
 			return fmt.Errorf("category %q has an unknown parent", c.ID)
 		}
-		if steps++; steps > len(t.cats) {
+		if seen[id] {
 			return fmt.Errorf("category %q is its own ancestor", c.ID)
 		}
+		seen[id] = true
 	}
 	return nil
 }
