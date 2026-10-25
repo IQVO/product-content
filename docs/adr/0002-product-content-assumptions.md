@@ -95,8 +95,10 @@ decisions are silent. Each assumption is also reported to the orchestrator as a
   1 to 500.
 - **A13 Idempotency.** Every write takes an `Idempotency-Key` (1 to 128 characters,
   remembered 24 hours per route and key). A repeated key with the same request body
-  replays the stored response; with a different body it is 422 `validation-failed`.
-  Only 2xx responses are stored.
+  replays the stored response (marked `Idempotent-Replayed: true`); with a different
+  body it is 422 `idempotency-key-reused`. Every response below 500 is stored, client
+  errors included, so a client retrying after a 4xx needs a fresh key; a 5xx is not
+  stored.
 - **A14 Ids.** A `catalogItemId` is an opaque id of 1 to 64 characters from
   `A-Za-z0-9._:-` starting with a letter or digit (`shared.ValidID`). Any other id is
   422 `validation-failed` on REST and a dead-lettered message on the consumer.

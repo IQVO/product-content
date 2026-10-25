@@ -58,11 +58,11 @@ In the same transaction as the view update and the inbox row:
 - Every consumer claims the CloudEvents `id` in the `processed_events` inbox inside
   the unit of work that applies the effect; a duplicate is acknowledged without effect.
 - Dispatch is on the full `type` string, never on a suffix.
-- A message that fails CloudEvents validation, has a `data` that does not decode, or
-  names an invalid `catalogItemId` is dead-lettered (`retailnetwork.product-content.events.dlq`
-  is NOT used for this: the DLQ topic is `retailnetwork.offer-availability.events.dlq`
-  suffixed by the consumer group, see `internal/adapters/inbound/kafka/deadletter.go`)
-  and the consumer moves on.
+- A message that fails CloudEvents validation is skipped with a WARN log and its
+  offset committed. A message of a handled type whose `data` does not decode, or
+  names an invalid `catalogItemId`, is dead-lettered at once to
+  `retailnetwork.offer-availability.events.dlq` (`internal/adapters/inbound/kafka/deadletter.go`);
+  so is a message whose handling failed five times in a row. The consumer then moves on.
 - Transient fetch errors and a topic that does not exist yet are retried with
   backoff; the consumer never crashes the process for them.
 
