@@ -26,7 +26,7 @@ func (w *world) api() *httptest.Server {
 			MoveCategory: usecases.MoveCategory{Deps: d}, RenameCategory: usecases.RenameCategory{Deps: d},
 			PublishCategoryTree: usecases.PublishCategoryTree{Deps: d}, ListCategories: usecases.ListCategories{Deps: d},
 			IdempotencyStore: w.store.Idempotency(), Clock: d.Clock,
-		}))
+		}, nil, ""))
 	}
 	return w.srv
 }
