@@ -79,7 +79,20 @@ type PublishContent struct{ Deps }
 // Execute publishes the current revision. Content with nothing new to publish
 // is returned unchanged and publishes nothing (ADR 0002, A1).
 func (u PublishContent) Execute(ctx context.Context, id content.ID) (views.Content, error) {
-	return transact(ctx, u.UoW, commandAttempts, func(ctx context.Context) (views.Content, error) {
+	v, published, err := u.execute(ctx, id)
+	if err != nil {
+		u.metrics().ContentPublishRejected(ctx, publishRejectionReason(err))
+	} else if published {
+		u.metrics().ContentPublished(ctx)
+	}
+	return v, err
+}
+
+// execute is the publish proper; published reports that a revision was saved
+// (false when there was nothing new to publish).
+func (u PublishContent) execute(ctx context.Context, id content.ID) (_ views.Content, published bool, _ error) {
+	v, err := transact(ctx, u.UoW, commandAttempts, func(ctx context.Context) (views.Content, error) {
+		published = false
 		c, err := u.Contents.Get(ctx, id)
 		if err != nil {
 			return views.Content{}, err
@@ -96,8 +109,10 @@ func (u PublishContent) Execute(ctx context.Context, id content.ID) (views.Conte
 		if err != nil {
 			return views.Content{}, err
 		}
+		published = len(events) > 0
 		return u.saveAndPublish(ctx, c, events)
 	})
+	return v, published && err == nil, err
 }
 
 // RetireContent is the command RetireContent

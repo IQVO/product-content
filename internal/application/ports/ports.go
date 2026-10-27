@@ -92,6 +92,22 @@ type Clock interface {
 	Now() time.Time
 }
 
+// ContentMetrics records the business outcome of every publish attempt (Tier 2
+// of the fleet metrics convention). PublishContent calls it once per attempt:
+// ContentPublished when a revision was saved and ProductContentPublished
+// enqueued, ContentPublishRejected otherwise, with the problem slug that says
+// why (the `type` suffix the REST adapter answers with: "incomplete-content",
+// "item-discontinued", ...). A publish with nothing new to publish is not an
+// attempt. The implementation lives in internal/adapters/outbound/telemetry; a
+// nil Deps.Metrics records nothing.
+type ContentMetrics interface {
+	// ContentPublished counts a revision that was published.
+	ContentPublished(ctx context.Context)
+	// ContentPublishRejected counts a publish that published nothing; reason is
+	// a stable, low-cardinality slug.
+	ContentPublishRejected(ctx context.Context, reason string)
+}
+
 // IDGenerator mints the ids of new aggregates.
 type IDGenerator interface {
 	// NewCategoryID mints the id of a new category.

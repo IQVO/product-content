@@ -29,6 +29,9 @@ type Deps struct {
 	UoW        ports.UnitOfWork
 	Clock      ports.Clock
 	IDs        ports.IDGenerator
+	// Metrics records the business outcome of each publish; nil records
+	// nothing, so unit tests need no wiring.
+	Metrics ports.ContentMetrics
 }
 
 const (
@@ -40,6 +43,20 @@ const (
 )
 
 func (d Deps) now() time.Time { return d.Clock.Now().UTC() }
+
+// metrics returns the configured ContentMetrics or a no-op.
+func (d Deps) metrics() ports.ContentMetrics {
+	if d.Metrics != nil {
+		return d.Metrics
+	}
+	return noMetrics{}
+}
+
+// noMetrics is the ContentMetrics of a Deps without one.
+type noMetrics struct{}
+
+func (noMetrics) ContentPublished(context.Context)               {}
+func (noMetrics) ContentPublishRejected(context.Context, string) {}
 
 func (d Deps) publish(ctx context.Context, events []shared.Event) error {
 	if err := d.Outbox.Append(ctx, events...); err != nil {
