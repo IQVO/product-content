@@ -1,0 +1,13 @@
+apiVersion: v2
+name: product-content
+description: Product content - descriptions, bullets, attributes, media URLs and the category tree enriching the network catalogue item; consumes offer-availability catalog-item events and publishes product-content events from the transactional outbox on retailnetwork.product-content.events
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/IQVO/product-content
+keywords:
+  - ddd
+  - hexagonal-architecture
+  - retail-network
+  - storefront
+  - golang
