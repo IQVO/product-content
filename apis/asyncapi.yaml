@@ -1,0 +1,480 @@
+asyncapi: 3.0.0
+info:
+  title: product-content Domain Events
+  version: 1.0.0
+  contact:
+    name: product-content maintainers
+    url: https://github.com/IQVO/product-content
+    email: product-content@iqvo.example.com
+  license:
+    name: UNLICENSED
+  tags:
+    - name: product-content
+      description: The product-content bounded context (retail network, storefront tier).
+    - name: productcontent
+      description: Events raised by the ProductContent aggregate.
+    - name: categorytree
+      description: Events raised by the CategoryTree aggregate.
+    - name: consumed
+      description: Events produced by offer-availability that this service consumes (ADR 0003).
+  description: |-
+    Event catalog for the **product-content** bounded context of the storefront (Generic subdomain): the description, bullets, attributes and media of a catalogue item and the category tree (ADR 0001, ADR 0002).
+
+    **Published.** Three integration events, `ProductContentPublished`, `ProductContentRetired` and `CategoryTreePublished`, on `retailnetwork.product-content.events` through a **transactional outbox** (the aggregate row and its already-encoded events are written in ONE database transaction; an always-on relay drains them to Kafka, at-least-once, the CloudEvents `id` is stored with the outbox row). The three types are catalogued in ADR 0004. Nothing is published on `retailnetwork.product-content.analytics`: the model names no analytics-only event for this context. No event carries a title, a price, stock or PII.
+
+    **Consumed.** `CatalogItemCreated` and `CatalogItemDiscontinued` from offer-availability (see the `receive` operation and ADR 0003). They feed the local CatalogItemView; a discontinued item also runs the RetireOnDiscontinue policy. The messages list only the fields this service relies on; the producer's own AsyncAPI file is authoritative and unknown fields are ignored. The consumer group name comes from a mandatory environment variable.
+
+    **Envelope (mandatory).** CloudEvents 1.0, structured content mode, Kafka header `content-type: application/cloudevents+json; charset=UTF-8`. `specversion`, `id`, `source` (`/retailnetwork/product-content`), `type`, `subject` (the catalogItemId for content events, the categoryTreeId for tree events), `time`, `datacontenttype` (`application/json`) and `dataschema` (`urn:retailnetwork:product-content:events:<EventName>:v1`) are all required. Kafka key = the subject. Type = `com.retailnetwork.storefront.product-content.<entity>.<EventName>`. A breaking payload change is a new `.v2` type, never a mutation. Dispatch on the full `type`, ignore unknown types, dedupe on `id`.
+
+    **Ordering.** `ProductContentPublished` and `ProductContentRetired` of one item share a Kafka key (the catalogItemId) and carry a monotonically increasing `revision`: a consumer applies a revision only above the last one it applied. `CategoryTreePublished` carries the tree `version` and the WHOLE tree, so a consumer replaces its tree when the version is above the last one it applied.
+
+    **Conventions.** `data` is camelCase; instants are RFC 3339 UTC; enums are UPPER_SNAKE; optional fields are omitted when absent (never null); arrays are always present.
+servers:
+  production:
+    host: '{brokers}'
+    protocol: kafka
+    description: Retail-network Kafka broker (host supplied by the deployment environment via KAFKA_BROKERS).
+    variables:
+      brokers:
+        default: kafka.retail-network.internal:9092
+defaultContentType: application/cloudevents+json
+channels:
+  productContentEvents:
+    address: retailnetwork.product-content.events
+    title: product-content integration topic
+    description: This service's integration topic. Written by the outbox relay; key = subject (the catalogItemId or the categoryTreeId). Every message carries the CloudEvents content-type header.
+    messages:
+      ProductContentPublished:
+        $ref: '#/components/messages/ProductContentPublished'
+      ProductContentRetired:
+        $ref: '#/components/messages/ProductContentRetired'
+      CategoryTreePublished:
+        $ref: '#/components/messages/CategoryTreePublished'
+  offerAvailabilityEvents:
+    address: retailnetwork.offer-availability.events
+    title: offer-availability integration topic (consumed)
+    description: Produced by offer-availability (Conformist); consumed by product-content with its own consumer group (see ADR 0003). Idempotent on the CloudEvents id (inbox), dispatch on the full type, tolerant decoding, dead-letter on poison messages.
+    messages:
+      CatalogItemCreated:
+        $ref: '#/components/messages/ConsumedCatalogItemCreated'
+      CatalogItemDiscontinued:
+        $ref: '#/components/messages/ConsumedCatalogItemDiscontinued'
+operations:
+  publishProductContentEvents:
+    action: send
+    title: Publish product-content events
+    summary: Publish ProductContentPublished, ProductContentRetired and CategoryTreePublished through the transactional outbox.
+    description: The service sends the events of the ProductContent and CategoryTree aggregates to `retailnetwork.product-content.events`. Consumers route on the full `type`.
+    tags:
+      - name: product-content
+    channel:
+      $ref: '#/channels/productContentEvents'
+    messages:
+      - $ref: '#/channels/productContentEvents/messages/ProductContentPublished'
+      - $ref: '#/channels/productContentEvents/messages/ProductContentRetired'
+      - $ref: '#/channels/productContentEvents/messages/CategoryTreePublished'
+  receiveOfferAvailabilityEvents:
+    action: receive
+    title: Receive offer-availability events
+    summary: Consume CatalogItemCreated and CatalogItemDiscontinued from offer-availability.
+    description: product-content consumes CatalogItemCreated and CatalogItemDiscontinued from `retailnetwork.offer-availability.events`. They feed CatalogItemView; CatalogItemDiscontinued also retires the item's content (RetireOnDiscontinue). See ADR 0003.
+    tags:
+      - name: consumed
+    channel:
+      $ref: '#/channels/offerAvailabilityEvents'
+    messages:
+      - $ref: '#/channels/offerAvailabilityEvents/messages/CatalogItemCreated'
+      - $ref: '#/channels/offerAvailabilityEvents/messages/CatalogItemDiscontinued'
+components:
+  messages:
+    ProductContentPublished:
+      name: ProductContentPublished
+      title: ProductContentPublished
+      summary: A revision of an item's content was published.
+      description: '`type` = `com.retailnetwork.storefront.product-content.productcontent.ProductContentPublished`; subject and key = the catalogItemId. Raised by PublishContent (DRAFT to PUBLISHED, or PUBLISHED to PUBLISHED when a revision is waiting) in the same transaction as the outbox row. Carries the full content, so product-discovery never calls back; `revision` orders it (apply only above the last applied revision). No title, price or stock: those belong to other contexts.'
+      contentType: application/cloudevents+json
+      tags:
+        - name: productcontent
+      payload:
+        $ref: '#/components/schemas/ProductContentPublishedEvent'
+      examples:
+        - name: productContentPublished
+          summary: Revision 2 of an item's content was published.
+          payload:
+            specversion: '1.0'
+            id: 7d2e9c41-5f6b-4a3e-9c2d-1e8f0a5b6c7d
+            source: /retailnetwork/product-content
+            type: com.retailnetwork.storefront.product-content.productcontent.ProductContentPublished
+            subject: cat-100234
+            time: '2026-10-22T14:03:11Z'
+            datacontenttype: application/json
+            dataschema: urn:retailnetwork:product-content:events:ProductContentPublished:v1
+            data:
+              catalogItemId: cat-100234
+              revision: 2
+              description: A 2-litre insulated steel bottle that keeps drinks cold for a day.
+              bullets:
+                - Double-wall vacuum insulation
+                - Fits a standard bottle cage
+              attributes:
+                - name: capacity
+                  value: '2'
+                  unit: l
+                - name: material
+                  value: stainless steel
+              media:
+                - mediaId: med-01
+                  url: https://static.example.invalid/cat-100234/main.jpg
+                  altText: Steel bottle, side view
+                  role: PRIMARY
+                - mediaId: med-02
+                  url: https://static.example.invalid/cat-100234/cap.jpg
+                  altText: Cap detail
+                  role: GALLERY
+              primaryCategoryId: cat-bottles
+    ProductContentRetired:
+      name: ProductContentRetired
+      title: ProductContentRetired
+      summary: An item's published content was retired.
+      description: '`type` = `com.retailnetwork.storefront.product-content.productcontent.ProductContentRetired`; subject and key = the catalogItemId. Raised by RetireContent (content manager) and by the RetireOnDiscontinue policy for PUBLISHED content. Discarding a DRAFT and retiring a DRAFT on discontinuation raise nothing: nothing was published. `revision` is the content revision at retirement.'
+      contentType: application/cloudevents+json
+      tags:
+        - name: productcontent
+      payload:
+        $ref: '#/components/schemas/ProductContentRetiredEvent'
+      examples:
+        - name: productContentRetired
+          summary: The published content of an item was retired.
+          payload:
+            specversion: '1.0'
+            id: 1b6f0f6e-2c43-4e0b-8a10-6f6d3a9c5e21
+            source: /retailnetwork/product-content
+            type: com.retailnetwork.storefront.product-content.productcontent.ProductContentRetired
+            subject: cat-100234
+            time: '2026-10-22T16:30:00Z'
+            datacontenttype: application/json
+            dataschema: urn:retailnetwork:product-content:events:ProductContentRetired:v1
+            data:
+              catalogItemId: cat-100234
+              revision: 2
+    CategoryTreePublished:
+      name: CategoryTreePublished
+      title: CategoryTreePublished
+      summary: The category tree was published under a new version.
+      description: '`type` = `com.retailnetwork.storefront.product-content.categorytree.CategoryTreePublished`; subject and key = the categoryTreeId (`main`). Raised by every CreateCategory, MoveCategory, RenameCategory and PublishCategoryTree, in the same transaction as the tree row: the tree is one live aggregate with no draft state, so every command publishes a new version. Carries the WHOLE tree ordered by path, so a consumer replaces its tree when `version` is above the last applied one.'
+      contentType: application/cloudevents+json
+      tags:
+        - name: categorytree
+      payload:
+        $ref: '#/components/schemas/CategoryTreePublishedEvent'
+      examples:
+        - name: categoryTreePublished
+          summary: Version 3 of the category tree.
+          payload:
+            specversion: '1.0'
+            id: 4a8c2d90-7e15-4b3c-b6f2-0c9d8e7a1b35
+            source: /retailnetwork/product-content
+            type: com.retailnetwork.storefront.product-content.categorytree.CategoryTreePublished
+            subject: main
+            time: '2026-10-22T09:00:00Z'
+            datacontenttype: application/json
+            dataschema: urn:retailnetwork:product-content:events:CategoryTreePublished:v1
+            data:
+              version: 3
+              categories:
+                - categoryId: cat-home
+                  name: Home
+                  path: Home
+                - categoryId: cat-bottles
+                  parentId: cat-home
+                  name: Bottles
+                  path: Home/Bottles
+    ConsumedCatalogItemCreated:
+      name: CatalogItemCreated
+      title: CatalogItemCreated (consumed)
+      summary: A catalogue item was created in the item master.
+      description: '`type` = `com.retailnetwork.commerce.offer-availability.catalogitem.CatalogItemCreated` produced by offer-availability on `retailnetwork.offer-availability.events`. Projected into CatalogItemView (ACTIVE) so content can be created for the item. Only `catalogItemId` is used; the title, dimensions and flags belong to the item master. Dispatch on the full type; unknown fields are ignored.'
+      contentType: application/cloudevents+json
+      tags:
+        - name: consumed
+      payload:
+        $ref: '#/components/schemas/CatalogItemCreatedEvent'
+      examples:
+        - name: catalogItemCreated
+          summary: A catalogue item was created.
+          payload:
+            specversion: '1.0'
+            id: 7c1d3a52-5f0e-4a61-9a37-2b9d4e1f6a10
+            source: /retailnetwork/offer-availability
+            type: com.retailnetwork.commerce.offer-availability.catalogitem.CatalogItemCreated
+            subject: cat-100234
+            time: '2026-10-22T08:00:00Z'
+            datacontenttype: application/json
+            dataschema: urn:retailnetwork:offer-availability:events:CatalogItemCreated:v1
+            data:
+              catalogItemId: cat-100234
+              title: Stainless steel water bottle 2 l
+    ConsumedCatalogItemDiscontinued:
+      name: CatalogItemDiscontinued
+      title: CatalogItemDiscontinued (consumed)
+      summary: A catalogue item was discontinued.
+      description: '`type` = `com.retailnetwork.commerce.offer-availability.catalogitem.CatalogItemDiscontinued` produced by offer-availability on `retailnetwork.offer-availability.events`. Marks the item DISCONTINUED in CatalogItemView (terminal; a late or replayed CatalogItemCreated never revives it) and runs RetireOnDiscontinue: PUBLISHED content retires with ProductContentRetired, a DRAFT retires silently (reason DISCONTINUED). Dispatch on the full type; unknown fields are ignored.'
+      contentType: application/cloudevents+json
+      tags:
+        - name: consumed
+      payload:
+        $ref: '#/components/schemas/CatalogItemDiscontinuedEvent'
+      examples:
+        - name: catalogItemDiscontinued
+          summary: A catalogue item was discontinued.
+          payload:
+            specversion: '1.0'
+            id: 9e3b7f10-2d64-4c8a-a1b5-3f7e6d5c4b20
+            source: /retailnetwork/offer-availability
+            type: com.retailnetwork.commerce.offer-availability.catalogitem.CatalogItemDiscontinued
+            subject: cat-100234
+            time: '2026-10-22T15:00:00Z'
+            datacontenttype: application/json
+            dataschema: urn:retailnetwork:offer-availability:events:CatalogItemDiscontinued:v1
+            data:
+              catalogItemId: cat-100234
+  schemas:
+    Instant:
+      type: string
+      format: date-time
+      description: RFC 3339 instant in UTC.
+    ProductContentPublishedData:
+      type: object
+      required: [catalogItemId, revision, description, bullets, attributes, media, primaryCategoryId]
+      properties:
+        catalogItemId:
+          type: string
+        revision:
+          type: integer
+          minimum: 1
+          description: The published revision; a consumer applies it only above the last applied revision.
+        description:
+          type: string
+        bullets:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+        attributes:
+          type: array
+          maxItems: 50
+          items:
+            type: object
+            required: [name, value]
+            properties:
+              name:
+                type: string
+              value:
+                type: string
+              unit:
+                type: string
+                description: Omitted when the attribute has no unit.
+        media:
+          type: array
+          maxItems: 12
+          description: Exactly one medium has the role PRIMARY.
+          items:
+            type: object
+            required: [mediaId, url, altText, role]
+            properties:
+              mediaId:
+                type: string
+              url:
+                type: string
+                format: uri
+              altText:
+                type: string
+              role:
+                type: string
+                enum: [PRIMARY, GALLERY]
+        primaryCategoryId:
+          type: string
+    ProductContentRetiredData:
+      type: object
+      required: [catalogItemId, revision]
+      properties:
+        catalogItemId:
+          type: string
+        revision:
+          type: integer
+          minimum: 1
+          description: The content revision at retirement; the consumer's monotonic guard still applies.
+    CategoryTreePublishedData:
+      type: object
+      required: [version, categories]
+      properties:
+        version:
+          type: integer
+          minimum: 1
+          description: The tree version; a consumer applies it only above the last applied version.
+        categories:
+          type: array
+          description: The whole tree ordered by path (parents before children).
+          items:
+            type: object
+            required: [categoryId, name, path]
+            properties:
+              categoryId:
+                type: string
+              parentId:
+                type: string
+                description: Omitted for a root category.
+              name:
+                type: string
+              path:
+                type: string
+                description: The names from the root joined with "/".
+    ProductContentPublishedEvent:
+      type: object
+      required: [specversion, id, source, type, subject, time, datacontenttype, dataschema, data]
+      properties:
+        specversion:
+          type: string
+          const: '1.0'
+        id:
+          type: string
+          description: CloudEvents id (UUID); stable across relay retries. Consumers dedupe on it (inbox).
+        source:
+          type: string
+          const: /retailnetwork/product-content
+        type:
+          type: string
+          const: com.retailnetwork.storefront.product-content.productcontent.ProductContentPublished
+        subject:
+          type: string
+          description: The catalogItemId; also the Kafka message key.
+        time:
+          $ref: '#/components/schemas/Instant'
+        datacontenttype:
+          type: string
+          const: application/json
+        dataschema:
+          type: string
+          const: urn:retailnetwork:product-content:events:ProductContentPublished:v1
+        data:
+          $ref: '#/components/schemas/ProductContentPublishedData'
+    ProductContentRetiredEvent:
+      type: object
+      required: [specversion, id, source, type, subject, time, datacontenttype, dataschema, data]
+      properties:
+        specversion:
+          type: string
+          const: '1.0'
+        id:
+          type: string
+          description: CloudEvents id (UUID); stable across relay retries. Consumers dedupe on it (inbox).
+        source:
+          type: string
+          const: /retailnetwork/product-content
+        type:
+          type: string
+          const: com.retailnetwork.storefront.product-content.productcontent.ProductContentRetired
+        subject:
+          type: string
+          description: The catalogItemId; also the Kafka message key.
+        time:
+          $ref: '#/components/schemas/Instant'
+        datacontenttype:
+          type: string
+          const: application/json
+        dataschema:
+          type: string
+          const: urn:retailnetwork:product-content:events:ProductContentRetired:v1
+        data:
+          $ref: '#/components/schemas/ProductContentRetiredData'
+    CategoryTreePublishedEvent:
+      type: object
+      required: [specversion, id, source, type, subject, time, datacontenttype, dataschema, data]
+      properties:
+        specversion:
+          type: string
+          const: '1.0'
+        id:
+          type: string
+          description: CloudEvents id (UUID); stable across relay retries. Consumers dedupe on it (inbox).
+        source:
+          type: string
+          const: /retailnetwork/product-content
+        type:
+          type: string
+          const: com.retailnetwork.storefront.product-content.categorytree.CategoryTreePublished
+        subject:
+          type: string
+          description: The categoryTreeId (`main`); also the Kafka message key.
+        time:
+          $ref: '#/components/schemas/Instant'
+        datacontenttype:
+          type: string
+          const: application/json
+        dataschema:
+          type: string
+          const: urn:retailnetwork:product-content:events:CategoryTreePublished:v1
+        data:
+          $ref: '#/components/schemas/CategoryTreePublishedData'
+    CatalogItemCreatedEvent:
+      type: object
+      required: [specversion, id, source, type, subject, time, datacontenttype, dataschema, data]
+      properties:
+        specversion:
+          type: string
+          const: '1.0'
+        id:
+          type: string
+        source:
+          type: string
+          const: /retailnetwork/offer-availability
+        type:
+          type: string
+          const: com.retailnetwork.commerce.offer-availability.catalogitem.CatalogItemCreated
+        subject:
+          type: string
+        time:
+          $ref: '#/components/schemas/Instant'
+        datacontenttype:
+          type: string
+          const: application/json
+        dataschema:
+          type: string
+          const: urn:retailnetwork:offer-availability:events:CatalogItemCreated:v1
+        data:
+          type: object
+          required: [catalogItemId]
+          properties:
+            catalogItemId:
+              type: string
+    CatalogItemDiscontinuedEvent:
+      type: object
+      required: [specversion, id, source, type, subject, time, datacontenttype, dataschema, data]
+      properties:
+        specversion:
+          type: string
+          const: '1.0'
+        id:
+          type: string
+        source:
+          type: string
+          const: /retailnetwork/offer-availability
+        type:
+          type: string
+          const: com.retailnetwork.commerce.offer-availability.catalogitem.CatalogItemDiscontinued
+        subject:
+          type: string
+        time:
+          $ref: '#/components/schemas/Instant'
+        datacontenttype:
+          type: string
+          const: application/json
+        dataschema:
+          type: string
+          const: urn:retailnetwork:offer-availability:events:CatalogItemDiscontinued:v1
+        data:
+          type: object
+          required: [catalogItemId]
+          properties:
+            catalogItemId:
+              type: string

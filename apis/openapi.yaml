@@ -1,0 +1,642 @@
+openapi: 3.0.3
+info:
+  title: Product Content API
+  version: 0.1.0
+  contact:
+    name: product-content maintainers
+    url: https://github.com/IQVO/product-content
+  description: >-
+    REST contract of the product-content bounded context of the digital
+    storefront (model: warehouse-docs storefront/model/model.yaml,
+    contexts[product-content], with the FINAL model-gap decisions applied).
+    Product Content enriches the network's catalogue item with description,
+    bullets (<= 10), attributes (<= 50), media (<= 12, URLs to static assets
+    only; upload is out of scope) and the category tree. The title stays the
+    item master's. Content publishes only when complete: a description,
+    exactly one PRIMARY medium and a category. Content lifecycle: DRAFT
+    (revisable, discardable) -> PUBLISHED (revisable, publishable again with
+    the new revision) -> RETIRED (terminal). The category tree is ONE live
+    aggregate without a draft state: every category write applies to the live
+    tree and publishes a new version (CategoryTreePublished). Categories are
+    never deleted. Errors are RFC 9457 problem details
+    (application/problem+json) whose type is /problems/<slug>; shared types
+    are not-found (404), illegal-transition (409), concurrent-update (409) and
+    validation-failed (422), plus one kebab-case slug per Err of the model.
+    Every write takes an Idempotency-Key header (24 hours). No authentication.
+servers:
+  - url: http://localhost:8080
+tags:
+  - name: ProductContents
+    description: Content per catalogue item (ProductContent, revisions).
+  - name: Categories
+    description: The single, versioned category tree (CategoryTree).
+paths:
+  /product-contents:
+    post:
+      tags: [ProductContents]
+      operationId: createProductContent
+      summary: Create the draft content of a catalogue item
+      description: >-
+        CreateProductContent. The item must exist in the local CatalogItemView
+        (fed by offer-availability events) and must not be discontinued. The
+        content starts DRAFT at revision 1; the body may be incomplete (the
+        publish gate is checked by :publish). A second create for the same item
+        is a 409 concurrent-update.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductContentInput'
+      responses:
+        '201':
+          description: The created content (DRAFT).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductContent'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          description: >-
+            validation-failed, unknown-catalog-item (ErrUnknownCatalogItem),
+            item-discontinued (ErrItemDiscontinued), unknown-category
+            (ErrUnknownCategory), too-many-bullets (ErrTooManyBullets),
+            too-many-attributes (ErrTooManyAttributes) or too-many-media
+            (ErrTooManyMedia).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+    get:
+      tags: [ProductContents]
+      operationId: listProductContents
+      summary: List product contents, paged (projection bootstrap)
+      description: >-
+        Paged list of product contents of every state, ordered by catalogItemId.
+        Used by product-discovery's projection rebuild (snapshot + catch-up);
+        not part of a user request path. `next` is the cursor of the next page
+        (pass it as `after`); it is absent on the last page.
+      parameters:
+        - name: after
+          in: query
+          required: false
+          description: The catalogItemId after which the page starts.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Page size, 1 to 500 (default 100).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+      responses:
+        '200':
+          description: The page of product contents.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductContentList'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+  /product-contents/{catalogItemId}:
+    get:
+      tags: [ProductContents]
+      operationId: getProductContent
+      summary: Get the content of one catalogue item
+      description: Returns the ProductContent with its current revision.
+      parameters:
+        - $ref: '#/components/parameters/CatalogItemId'
+      responses:
+        '200':
+          description: The product content.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductContent'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /product-contents/{catalogItemId}:revise:
+    post:
+      tags: [ProductContents]
+      operationId: reviseProductContent
+      summary: Revise the content of a catalogue item
+      description: >-
+        ReviseDraft (DRAFT to DRAFT) or ReviseContent (PUBLISHED to PUBLISHED),
+        chosen by the state. The body replaces the whole editable content and
+        takes a new revision. PUBLISHED content must stay complete
+        (incomplete-content otherwise) and shoppers see the revision only after
+        :publish publishes it. Revising RETIRED content is a 409
+        content-retired.
+      parameters:
+        - $ref: '#/components/parameters/CatalogItemId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviseInput'
+      responses:
+        '200':
+          description: The revised content.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductContent'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: content-retired (ErrContentRetired) or concurrent-update.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: >-
+            validation-failed, unknown-category (ErrUnknownCategory),
+            incomplete-content (ErrIncompleteContent, PUBLISHED content only),
+            too-many-bullets, too-many-attributes or too-many-media.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /product-contents/{catalogItemId}:publish:
+    post:
+      tags: [ProductContents]
+      operationId: publishProductContent
+      summary: Publish the content of a catalogue item
+      description: >-
+        PublishContent. DRAFT to PUBLISHED, or PUBLISHED to PUBLISHED when a
+        revision is waiting. Publish needs a description, exactly one PRIMARY
+        medium and a category (ErrIncompleteContent) and a catalogue item that
+        is not discontinued. Publishes ProductContentPublished with the current
+        revision. PUBLISHED content whose current revision is already published
+        is returned unchanged and publishes nothing.
+      parameters:
+        - $ref: '#/components/parameters/CatalogItemId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: The published content.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductContent'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: content-retired (ErrContentRetired) or concurrent-update.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: >-
+            incomplete-content (ErrIncompleteContent), unknown-category
+            (ErrUnknownCategory), unknown-catalog-item (ErrUnknownCatalogItem)
+            or item-discontinued (ErrItemDiscontinued).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /product-contents/{catalogItemId}:retire:
+    post:
+      tags: [ProductContents]
+      operationId: retireProductContent
+      summary: Retire the published content of a catalogue item
+      description: >-
+        RetireContent. PUBLISHED to RETIRED (terminal). A DRAFT is discarded
+        with :discard instead. RetireOnDiscontinue retires content
+        automatically when the network discontinues the item. Publishes
+        ProductContentRetired.
+      parameters:
+        - $ref: '#/components/parameters/CatalogItemId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: The retired content.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductContent'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: illegal-transition (the content is DRAFT or already RETIRED) or concurrent-update.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /product-contents/{catalogItemId}:discard:
+    post:
+      tags: [ProductContents]
+      operationId: discardProductContentDraft
+      summary: Discard the draft content of a catalogue item
+      description: >-
+        DiscardDraft. DRAFT to RETIRED with retiredReason DISCARDED. Nothing was
+        ever published, so no event is raised.
+      parameters:
+        - $ref: '#/components/parameters/CatalogItemId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: The discarded content (RETIRED, reason DISCARDED).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductContent'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: illegal-transition (the content is not a DRAFT) or concurrent-update.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /categories:
+    post:
+      tags: [Categories]
+      operationId: createCategory
+      summary: Create a category in the live tree
+      description: >-
+        CreateCategory. Applies to the live tree and publishes a new tree
+        version (CategoryTreePublished). The tree is at most four levels deep
+        and never contains a cycle; siblings never share a name (compared
+        case-insensitively). The category id is minted by the service.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryInput'
+      responses:
+        '201':
+          description: The created category.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          description: >-
+            validation-failed, unknown-category (the parent is not in the tree),
+            max-depth (ErrMaxDepth) or duplicate-sibling-name
+            (ErrDuplicateSiblingName).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+    get:
+      tags: [Categories]
+      operationId: listCategories
+      summary: Get the category tree
+      description: >-
+        Returns the categories of the current CategoryTree version, ordered by
+        path (parents before children). Before the first category the tree is
+        version 0 and empty.
+      responses:
+        '200':
+          description: The category tree.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryList'
+  /categories:publish:
+    post:
+      tags: [Categories]
+      operationId: publishCategoryTree
+      summary: Publish the category tree again
+      description: >-
+        PublishCategoryTree. Publishes the live tree under a new version
+        (PUBLISHED to PUBLISHED), for example to re-send it to a consumer. Every
+        category write already publishes; this call changes no category.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: The published tree.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryList'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /categories/{categoryId}:move:
+    post:
+      tags: [Categories]
+      operationId: moveCategory
+      summary: Move a category under a new parent
+      description: >-
+        MoveCategory. The subtree moves with the category. Moving never creates
+        a cycle and never exceeds depth four. Publishes a new tree version.
+      parameters:
+        - $ref: '#/components/parameters/CategoryId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoveCategoryRequest'
+      responses:
+        '200':
+          description: The moved category.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          description: >-
+            validation-failed, unknown-category (the new parent is not in the
+            tree), category-cycle (ErrCategoryCycle), max-depth (ErrMaxDepth) or
+            duplicate-sibling-name (ErrDuplicateSiblingName).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /categories/{categoryId}:rename:
+    post:
+      tags: [Categories]
+      operationId: renameCategory
+      summary: Rename a category
+      description: >-
+        RenameCategory. Siblings never share a name. The paths of the subtree
+        follow. Publishes a new tree version.
+      parameters:
+        - $ref: '#/components/parameters/CategoryId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameCategoryRequest'
+      responses:
+        '200':
+          description: The renamed category.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          description: validation-failed or duplicate-sibling-name (ErrDuplicateSiblingName).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+components:
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: A repeated key returns the stored response of the first call.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+    CatalogItemId:
+      name: catalogItemId
+      in: path
+      required: true
+      schema:
+        type: string
+    CategoryId:
+      name: categoryId
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    NotFound:
+      description: not-found.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: concurrent-update (another writer got in between the load and the save).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unprocessable:
+      description: validation-failed (invalid query parameter).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    Problem:
+      type: object
+      description: RFC 9457 problem details.
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+          description: Problem type, /problems/<slug>, for example /problems/incomplete-content.
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+    Attribute:
+      type: object
+      required: [name, value]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        value:
+          type: string
+          minLength: 1
+          maxLength: 300
+        unit:
+          type: string
+          maxLength: 20
+          nullable: true
+    Media:
+      type: object
+      required: [mediaId, url, altText, role]
+      properties:
+        mediaId:
+          type: string
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+          description: Absolute http(s) URL to a static asset; media upload is out of scope.
+        altText:
+          type: string
+          minLength: 1
+          maxLength: 200
+        role:
+          type: string
+          enum: [PRIMARY, GALLERY]
+    ContentBody:
+      type: object
+      description: The editable content, replaced as a whole by create and revise.
+      properties:
+        description:
+          type: string
+          maxLength: 4000
+        bullets:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+            minLength: 1
+            maxLength: 300
+        attributes:
+          type: array
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/Attribute'
+        media:
+          type: array
+          maxItems: 12
+          items:
+            $ref: '#/components/schemas/Media'
+        primaryCategoryId:
+          type: string
+    ProductContentInput:
+      allOf:
+        - type: object
+          required: [catalogItemId]
+          properties:
+            catalogItemId:
+              type: string
+        - $ref: '#/components/schemas/ContentBody'
+    ReviseInput:
+      allOf:
+        - type: object
+          properties:
+            catalogItemId:
+              type: string
+              description: Optional; when present it must equal the path parameter.
+        - $ref: '#/components/schemas/ContentBody'
+    ProductContent:
+      allOf:
+        - type: object
+          required: [catalogItemId, state, revision, publishedRevision, createdAt, updatedAt]
+          properties:
+            catalogItemId:
+              type: string
+            state:
+              type: string
+              enum: [DRAFT, PUBLISHED, RETIRED]
+            revision:
+              type: integer
+              minimum: 1
+              description: The revision of the current shape; every revise takes a new one.
+            publishedRevision:
+              type: integer
+              minimum: 0
+              description: The revision last published (0 = never). Shoppers see this revision; a PUBLISHED content with revision above it waits for :publish.
+            retiredReason:
+              type: string
+              enum: [MANUAL, DISCARDED, DISCONTINUED]
+              description: Present exactly when the state is RETIRED.
+            createdAt:
+              type: string
+              format: date-time
+            updatedAt:
+              type: string
+              format: date-time
+            publishedAt:
+              type: string
+              format: date-time
+              description: Present once a revision was published.
+            retiredAt:
+              type: string
+              format: date-time
+              description: Present exactly when the state is RETIRED.
+        - $ref: '#/components/schemas/ContentBody'
+    ProductContentList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductContent'
+        next:
+          type: string
+          nullable: true
+    Category:
+      type: object
+      required: [categoryId, name, path]
+      properties:
+        categoryId:
+          type: string
+        parentId:
+          type: string
+          nullable: true
+        name:
+          type: string
+        path:
+          type: string
+          description: The names from the root joined with "/".
+    CategoryInput:
+      type: object
+      required: [name]
+      properties:
+        parentId:
+          type: string
+          nullable: true
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+    MoveCategoryRequest:
+      type: object
+      required: [parentId]
+      properties:
+        parentId:
+          type: string
+          nullable: true
+          description: The new parent; null moves the category to the root.
+    RenameCategoryRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+    CategoryList:
+      type: object
+      required: [version, categories]
+      properties:
+        version:
+          type: integer
+          minimum: 0
+        categories:
+          type: array
+          items:
+            $ref: '#/components/schemas/Category'
