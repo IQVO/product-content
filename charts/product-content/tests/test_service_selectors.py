@@ -8,11 +8,11 @@ Every Deployment here carries `app.kubernetes.io/component` in selector.matchLab
 and its pod labels, and every Service selects on it, so each Service selects
 EXACTLY ONE Deployment. This test fails if that ever stops being true.
 
-product-content has exactly one component: the api (REST, the outbox relay and
-the offer-availability consumer in one process).
-There is no mcp and no frontend: the chart renders nothing for binaries that do
-not exist. The checks run with every optional template (HPA, Ingress, HTTPRoute)
-enabled together.
+product-content has one always-on component, the api (REST, the outbox relay and
+the offer-availability consumer in one process), and one optional, default-off
+component: the read-only a2a agent (cmd/a2a, ADR 0006). There is no mcp and no
+frontend: the chart renders nothing for binaries that do not exist. The checks
+run with every optional template (HPA, Ingress, HTTPRoute, a2a) enabled together.
 
 Run: python3 charts/product-content/tests/test_service_selectors.py
 Needs: helm, PyYAML.
@@ -53,6 +53,10 @@ ENABLE_EVERYTHING = BASE + [
     "--set", "autoscaling.api.enabled=true",
     "--set", "gatewayApi.enabled=true",
     "--set", "ingress.enabled=true",
+    "--set", "a2a.enabled=true",
+    "--set", "a2a.route.enabled=true",
+    "--set", "a2a.route.parentRefs[0].name=warehouse-gateway",
+    "--set", "a2a.route.parentRefs[0].namespace=kong",
     "--set", "config.outboxRelayInterval=2s",
     "--set", "config.shutdownDrainDelay=5s",
     "--set", "database.migrationsUrl=postgres://u@example.invalid:5432/direct",
@@ -63,6 +67,17 @@ API_ENV = (
     "HTTP_ADDR", "LOG_LEVEL", "DATABASE_URL", "MIGRATIONS_DATABASE_URL", "KAFKA_BROKERS",
     "OFFER_AVAILABILITY_CONSUMER_GROUP",
     "OUTBOX_RELAY_INTERVAL", "OUTBOX_MAX_ATTEMPTS", "SHUTDOWN_DRAIN_DELAY",
+)
+
+
+A2A = f"{RELEASE}-a2a"
+
+# Variables the read-only a2a agent renders, and the ones it must never get
+# (no Kafka, no relay, no consumer: it writes nothing).
+A2A_ENV = ("A2A_ADDR", "A2A_AGENT_URL", "LOG_LEVEL", "DATABASE_URL", "MIGRATIONS_DATABASE_URL")
+A2A_ENV_ABSENT = (
+    "KAFKA_BROKERS", "EVENT_PUBLISHER", "OFFER_AVAILABILITY_CONSUMER_GROUP",
+    "OUTBOX_RELAY_INTERVAL", "OUTBOX_MAX_ATTEMPTS", "SHUTDOWN_DRAIN_DELAY", "HTTP_ADDR",
 )
 
 
@@ -113,14 +128,15 @@ def check_components(docs: list[dict], failures: list[str]) -> None:
     services = {d["metadata"]["name"]: d for d in docs if d.get("kind") == "Service"}
     deployments = {d["metadata"]["name"]: d for d in docs if d.get("kind") == "Deployment"}
 
-    if set(deployments) != {RELEASE}:
-        failures.append(f"the chart has exactly one Deployment (the api), rendered: {sorted(deployments)}")
-    if set(services) != {RELEASE}:
-        failures.append(f"the chart has exactly one Service (the api), rendered: {sorted(services)}")
-    if RELEASE not in services:
-        failures.append("the api Service was not rendered")
-    elif selector_of(services[RELEASE]).get("app.kubernetes.io/component") != "api":
-        failures.append("the api Service selector must pin component=api")
+    if set(deployments) != {RELEASE, A2A}:
+        failures.append(f"the chart has the api and a2a Deployments, rendered: {sorted(deployments)}")
+    if set(services) != {RELEASE, A2A}:
+        failures.append(f"the chart has the api and a2a Services, rendered: {sorted(services)}")
+    for name, component in ((RELEASE, "api"), (A2A, "a2a")):
+        if name not in services:
+            failures.append(f"the {component} Service was not rendered")
+        elif selector_of(services[name]).get("app.kubernetes.io/component") != component:
+            failures.append(f"the {component} Service selector must pin component={component}")
 
     # Every Deployment's own selector must pin a component too, and be
     # satisfied by its pod labels.
@@ -138,7 +154,8 @@ def check_components(docs: list[dict], failures: list[str]) -> None:
         if len(hit) != 1:
             failures.append(f"Service {svc_name} selects {len(hit)} Deployments {sorted(hit)}; expected exactly 1")
 
-    # Ingress and HTTPRoute route to the api Service only; the HPA owns replicas.
+    # The Ingress and the api HTTPRoute route to the api Service only; the a2a
+    # HTTPRoute routes to the a2a Service only; the HPA owns the api replicas.
     for d in docs:
         if d.get("kind") == "Ingress":
             backends = {p["backend"]["service"]["name"] for r in d["spec"]["rules"] for p in r["http"]["paths"]}
@@ -146,13 +163,19 @@ def check_components(docs: list[dict], failures: list[str]) -> None:
                 failures.append(f"the Ingress must route to the api Service only, got {sorted(backends)}")
         if d.get("kind") == "HTTPRoute":
             backends = {b["name"] for r in d["spec"]["rules"] for b in r["backendRefs"]}
-            if backends != {RELEASE}:
-                failures.append(f"the HTTPRoute must route to the api Service only, got {sorted(backends)}")
+            want = {A2A} if d["metadata"]["name"] == A2A else {RELEASE}
+            if backends != want:
+                failures.append(f"the HTTPRoute {d['metadata']['name']} must route to {sorted(want)} only, got {sorted(backends)}")
+    routes = sorted(d["metadata"]["name"] for d in docs if d.get("kind") == "HTTPRoute")
+    if routes != sorted([RELEASE, A2A]):
+        failures.append(f"expected the api and a2a HTTPRoutes, rendered: {routes}")
     hpa = next((d for d in docs if d.get("kind") == "HorizontalPodAutoscaler"), None)
     if hpa is None or hpa["spec"]["scaleTargetRef"]["name"] != RELEASE:
         failures.append("the api HPA was not rendered (or does not scale the api Deployment)")
     elif "replicas" in deployments.get(RELEASE, {}).get("spec", {}):
         failures.append("the api Deployment must omit replicas when its HPA owns them")
+
+    check_a2a(deployments.get(A2A), failures)
 
     api = deployments.get(RELEASE)
     if api is None:
@@ -170,6 +193,30 @@ def check_components(docs: list[dict], failures: list[str]) -> None:
             failures.append(f"the api Deployment renders {name}={env_value(api, name)!r}, want {want!r}")
 
 
+def check_a2a(a2a: dict | None, failures: list[str]) -> None:
+    if a2a is None:
+        failures.append("the a2a Deployment was not rendered")
+        return
+    names = env_names(a2a)
+    for want in A2A_ENV:
+        if want not in names:
+            failures.append(f"the a2a Deployment does not render {want}")
+    for bad in A2A_ENV_ABSENT:
+        if bad in names:
+            failures.append(f"the read-only a2a Deployment must not render {bad}")
+    container = a2a["spec"]["template"]["spec"]["containers"][0]
+    if container.get("envFrom"):
+        failures.append("the a2a Deployment must not mount the api ConfigMap (envFrom)")
+    if container.get("command") != ["/app/a2a"]:
+        failures.append(f"the a2a container must run /app/a2a, got {container.get('command')}")
+    if env_value(a2a, "A2A_ADDR") != ":8093":
+        failures.append(f"the a2a agent must listen on :8093, got {env_value(a2a, 'A2A_ADDR')!r}")
+    if container["ports"][0]["containerPort"] != 8093:
+        failures.append("the a2a container port must be 8093")
+    if "replicas" not in a2a["spec"]:
+        failures.append("the a2a Deployment sets its own replicas (no HPA)")
+
+
 def check_refusals(failures: list[str]) -> None:
     cases: list[tuple[str, list[str], str]] = [
         ("without a database source", runtime("database"), "requires database.url or database.existingSecret"),
@@ -184,6 +231,8 @@ def check_refusals(failures: list[str]) -> None:
         ("a grace period under the shutdown bounds", BASE + ["--set", "terminationGracePeriodSeconds=30"], "terminationGracePeriodSeconds"),
         ("a grace period equal to the shutdown bounds", BASE + ["--set", "terminationGracePeriodSeconds=35"], "must exceed 35"),
         ("an http address on another port than the container's", BASE + ["--set", "config.httpAddr=:9090"], "config.httpAddr"),
+        ("an a2a address on another port than the a2a container's",
+         BASE + ["--set", "a2a.enabled=true", "--set", "a2a.httpAddr=:9090"], "a2a.httpAddr"),
     ]
     for key in GROUPS:
         cases.append((f"without config.{key}", runtime(key), f"config.{key} is required"))
@@ -203,6 +252,9 @@ def main() -> int:
     stray = [d["kind"] for d in defaults if d.get("kind") in {"HorizontalPodAutoscaler", "Ingress", "HTTPRoute"}]
     if stray:
         failures.append(f"optional templates rendered with default values: {stray}")
+    a2a_stray = [d["metadata"]["name"] for d in defaults if d["metadata"]["name"].endswith("-a2a")]
+    if a2a_stray:
+        failures.append(f"the a2a agent is off by default, but these rendered: {a2a_stray}")
     dep = next(d for d in defaults if d.get("kind") == "Deployment")
     names = env_names(dep)
     off = {"OUTBOX_RELAY_INTERVAL", "SHUTDOWN_DRAIN_DELAY"}
@@ -219,8 +271,8 @@ def main() -> int:
             print(f"FAIL: {f}")
         return 1
 
-    print("PASS: the Service selects exactly one Deployment (the api); the HPA, Ingress and HTTPRoute are off by default "
-          "and route to the api only; every cmd/api env var has a dedicated value; the chart refuses to render without a "
+    print("PASS: each Service selects exactly one Deployment (the api, and the read-only a2a agent when enabled); the HPA, "
+          "Ingress, HTTPRoute and a2a are off by default and route to their own Service only; every cmd/api env var has a dedicated value; the chart refuses to render without a "
           "database source, brokers or the consumer group, with a *_MODE or a consumer group in extraEnv, with a grace "
           "period that does not exceed the shutdown bounds, or with an http address off the container port")
     return 0
