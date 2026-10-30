@@ -138,8 +138,9 @@ if grep -qiE 'in-memory|silently runs|permissive' <<<"$render_all"$'\n'"$(cat "$
   fail "the render or NOTES.txt mentions an in-memory / permissive mode"
 fi
 
-# Only the api component exists: one Deployment, one Service, no MCP or frontend.
-for stray in mcp frontend projector reports analytics; do
+# With default values only the api component exists: one Deployment, one Service,
+# no MCP or frontend. (The optional a2a agent has its own block below.)
+for stray in mcp frontend projector reports analytics a2a; do
   if grep -qE "app.kubernetes.io/component: .*$stray" <<<"$render_all"; then fail "the chart must not render a $stray component"; fi
 done
 [[ "$(grep -c '^kind: Deployment' <<<"$render_all")" == 1 ]] || fail "exactly one Deployment (the api) must render"
@@ -149,15 +150,56 @@ for off in HorizontalPodAutoscaler Ingress HTTPRoute; do
   grep -q "^kind: $off" <<<"$render_all" || fail "$off must render when enabled"
 done
 
-# --- refusals: the mandatory values name themselves ---------------------------------
+# --- the A2A agent (ADR 0006): read-only, same Postgres, port 8093 ---------------------
+render() { helm template "$release" "$chart_dir" "${base[@]}" "$@"; }
+render_a2a() { helm template "$release" "$chart_dir" "${base[@]}" --set a2a.enabled=true "$@"; }
+a2a_dep="$(render_a2a --show-only templates/a2a-deployment.yaml)"
+grep -A4 'name: DATABASE_URL$' <<<"$a2a_dep" | grep -q 'secretKeyRef:' || fail "the a2a DATABASE_URL must come from a Secret"
+grep -A6 'name: MIGRATIONS_DATABASE_URL$' <<<"$a2a_dep" | grep -q 'optional: true' || fail "the a2a MIGRATIONS_DATABASE_URL must be optional: true"
+[[ "$(env_value "$a2a_dep" A2A_ADDR)" == ":8093" ]] || fail "the a2a agent must listen on :8093 (8080 is the api)"
+grep -q 'command: \["/app/a2a"\]' <<<"$a2a_dep" || fail "the a2a Deployment must run /app/a2a"
+grep -q 'app.kubernetes.io/component: a2a' <<<"$a2a_dep" || fail "the a2a Deployment must carry component a2a"
+# The agent is read-only: no Kafka, no relay, no consumer, and it must not mount
+# the api ConfigMap (which carries KAFKA_BROKERS and the consumer group).
+if grep -q 'configMapRef:' <<<"$a2a_dep"; then fail "the a2a Deployment must not mount the api ConfigMap"; fi
+for absent in KAFKA_BROKERS EVENT_PUBLISHER OFFER_AVAILABILITY_CONSUMER_GROUP OUTBOX_RELAY_INTERVAL OUTBOX_MAX_ATTEMPTS SHUTDOWN_DRAIN_DELAY HTTP_ADDR; do
+  if grep -q "name: $absent\$" <<<"$a2a_dep"; then fail "the read-only a2a Deployment must not render $absent"; fi
+done
+# The Agent Card must advertise a dialable absolute URL: it defaults to the
+# release's in-cluster Service DNS (namespace-derived, so pattern-match) and
+# stays overridable.
+a2a_url="$(env_value "$a2a_dep" A2A_AGENT_URL || true)" # a missing var must reach the fail message below, not abort under set -e
+[[ "$a2a_url" =~ ^http://[a-z0-9.-]+-a2a\.[a-z0-9-]+\.svc\.cluster\.local:8093/$ ]] || fail "A2A_AGENT_URL default is not the in-cluster Service DNS: $a2a_url"
+a2a_override="$(render_a2a --set a2a.agentUrl=http://gw.example/api/a2a/product-content/ --show-only templates/a2a-deployment.yaml)"
+[[ "$(env_value "$a2a_override" A2A_AGENT_URL || true)" == "http://gw.example/api/a2a/product-content/" ]] || fail "a2a.agentUrl does not override A2A_AGENT_URL"
+# Every "<VAR> is required" boot error in cmd/a2a is rendered by its Deployment:
+# a new mandatory variable fails until the chart carries it. The regex allows
+# digits: A2A_AGENT_URL would otherwise be read as A_AGENT_URL.
+a2a_vars="$(grep -hoE 'errors.New\("[A-Z][A-Z0-9_]+ is required' "$repo_dir"/cmd/a2a/*.go | sed -E 's/errors.New\("//; s/ is required//' | sort -u)"
+[[ "$a2a_vars" == *A2A_AGENT_URL* && "$a2a_vars" == *DATABASE_URL* ]] || fail "the scan of cmd/a2a found '$a2a_vars'; it is looking in the wrong place"
+for var in $a2a_vars; do
+  grep -q "name: $var\$" <<<"$a2a_dep" || fail "the a2a Deployment does not render $var, which cmd/a2a requires"
+done
+# Off by default: no a2a resource renders unless asked for; the route needs both switches.
+if render | grep -q -- '-a2a'; then fail "an a2a resource rendered with default values"; fi
+if render_a2a | grep -q '^kind: HTTPRoute'; then fail "the a2a HTTPRoute rendered without a2a.route.enabled"; fi
+if helm template "$release" "$chart_dir" "${base[@]}" --set a2a.route.enabled=true | grep -q -- '-a2a'; then fail "a2a.route.enabled alone must render nothing"; fi
+a2a_route="$(render_a2a --set a2a.route.enabled=true --set a2a.route.parentRefs[0].name=gw --set a2a.route.parentRefs[0].namespace=kong --show-only templates/a2a-route.yaml)"
+grep -q 'replacePrefixMatch: /$' <<<"$a2a_route" || fail "the a2a route must rewrite its prefix to /"
+grep -q 'value: /api/a2a/product-content$' <<<"$a2a_route" || fail "the a2a route must match /api/a2a/product-content"
+grep -A1 'backendRefs:' <<<"$a2a_route" | grep -q -- '-a2a$' || fail "the a2a route must back onto the a2a Service"
+# The a2a container port must agree with the Service and the probes.
 expect_refusal() { # expect_refusal <why> <needle> <helm args...>
   local why="$1" needle="$2" err; shift 2
   if err="$(helm template "$release" "$chart_dir" "$@" 2>&1)"; then
     fail "the chart must refuse to render: $why"
   fi
   grep -qF -- "$needle" <<<"$err" || fail "the refusal for '$why' does not name '$needle':
-$err"
+$(head -n 3 <<<"$err")"
 }
+expect_refusal "an a2a address off the container port" "a2a.httpAddr" "${base[@]}" --set a2a.enabled=true --set a2a.httpAddr=:9090
+
+# --- refusals: the mandatory values name themselves ---------------------------------
 # args that satisfy everything except the one value a case removes.
 mandatory_except() { # mandatory_except <database|kafka|<group key>>
   local skip="$1" out=()
@@ -196,7 +238,10 @@ expect_refusal "an http address off the container port" "config.httpAddr" "${bas
 # template together, still exactly one Deployment and one Service.
 together="$(helm template "$release" "$chart_dir" -f "$chart_dir/ci/all-components-values.yaml")"
 grep -q 'app.kubernetes.io/component: api$' <<<"$together" || fail "the full render lacks the api component"
-[[ "$(grep -c '^kind: Deployment' <<<"$together")" == 1 ]] || fail "the full render must carry exactly the api Deployment"
-[[ "$(grep -c '^kind: Service$' <<<"$together")" == 1 ]] || fail "the full render must carry exactly the api Service"
+grep -q 'app.kubernetes.io/component: a2a$' <<<"$together" || fail "the full render lacks the a2a component"
+[[ "$(grep -c '^kind: Deployment' <<<"$together")" == 2 ]] || fail "the full render must carry exactly the api and a2a Deployments"
+[[ "$(grep -c '^kind: Service$' <<<"$together")" == 2 ]] || fail "the full render must carry exactly the api and a2a Services"
+[[ "$(grep -c '^kind: HTTPRoute' <<<"$together")" == 2 ]] || fail "the full render must carry the api and a2a HTTPRoutes"
+grep -A1 'backendRefs:' <<<"$together" | grep -q -- '-a2a$' || fail "the full render: no HTTPRoute backs onto the a2a Service"
 
 echo "PASS: product-content chart render assertions"
