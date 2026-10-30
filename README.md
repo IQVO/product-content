@@ -1,5 +1,7 @@
 # product-content
 
+[![CI](https://github.com/IQVO/product-content/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/IQVO/product-content/actions/workflows/ci.yml?query=branch%3Adevelop) [![coverage gate](https://img.shields.io/badge/coverage%20gate-90%25-brightgreen)](https://github.com/IQVO/product-content/blob/develop/Makefile) [![Go](https://img.shields.io/badge/go-1.27.3-00ADD8?logo=go&logoColor=white)](https://github.com/IQVO/product-content/blob/develop/go.mod) [![release](https://img.shields.io/github/v/release/IQVO/product-content?sort=semver)](https://github.com/IQVO/product-content/releases) [![docs](https://img.shields.io/badge/docs-iqvo.github.io-blue)](https://iqvo.github.io/product-content/) [![license](https://img.shields.io/badge/license-MIT-blue)](https://github.com/IQVO/product-content/blob/develop/LICENSE)
+
 Storefront (e-commerce) domain of the retail-network organisation, bounded context **Product Content** (Generic, storefront tier).
 
 Enriches the network's catalogue item with everything a product page needs and the item master does not have: description, bullets, attributes, media and the category tree. The title stays the item master's; media upload is out of scope (URLs to static assets only).
