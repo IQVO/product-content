@@ -27,3 +27,12 @@ gatewayApi:
   hosts:
     - path: /api/product-content
       pathType: PathPrefix
+a2a:
+  enabled: true
+  route:
+    enabled: true
+    path: /api/a2a/product-content
+    parentRefs:
+      - name: warehouse-gateway
+        namespace: kong
+        sectionName: http
