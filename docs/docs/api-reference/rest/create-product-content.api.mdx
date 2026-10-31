@@ -1,0 +1,70 @@
+---
+id: create-product-content
+title: "Create the draft content of a catalogue item"
+description: "CreateProductContent. The item must exist in the local CatalogItemView (fed by offer-availability events) and must not be discontinued. The content starts DRAFT at revision 1; the body may be incomplete (the publish gate is checked by :publish). A second create for the same item is a 409 concurrent-update."
+sidebar_label: "Create the draft content of a catalogue item"
+hide_title: true
+hide_table_of_contents: true
+api: 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
+sidebar_class_name: "post api-method"
+info_path: docs/api-reference/rest/product-content-api
+custom_edit_url: null
+hide_send_button: true
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"Create the draft content of a catalogue item"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"post"}
+  path={"/product-contents"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+CreateProductContent. The item must exist in the local CatalogItemView (fed by offer-availability events) and must not be discontinued. The content starts DRAFT at revision 1; the body may be incomplete (the publish gate is checked by :publish). A second create for the same item is a 409 concurrent-update.
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails
+  {...require("./create-product-content.ParamsDetails.json")}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./create-product-content.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./create-product-content.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      
