@@ -51,6 +51,26 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
+Fully qualified name of the A2A agent Deployment/Service/HTTPRoute
+(<release>-a2a, ADR 0006). The base is cut so the suffix always survives the
+63-character limit and the name can never collide with the api's.
+*/}}
+{{- define "product-content.a2aFullname" -}}
+{{- printf "%s-a2a" (include "product-content.fullname" . | trunc 59 | trimSuffix "-") }}
+{{- end }}
+
+{{/*
+The port of a2a.httpAddr is the container port the probes and the a2a Service
+target (the same rule as requireHttpPort for the api).
+*/}}
+{{- define "product-content.requireA2AHttpPort" -}}
+{{- $port := trimPrefix ":" (regexFind ":[0-9]+$" (toString .Values.a2a.httpAddr)) -}}
+{{- if ne $port (toString .Values.a2a.service.targetPort) -}}
+{{- fail (printf "a2a.httpAddr is %q but a2a.service.targetPort is %v: the container port, the probes and the Service must agree." .Values.a2a.httpAddr .Values.a2a.service.targetPort) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Create the name of the service account to use
 */}}
 {{- define "product-content.serviceAccountName" -}}

@@ -184,3 +184,48 @@ otel:
   enabled: true
   endpoint: "otel-collector.observability.svc.cluster.local:4317"
   serviceName: "product-content"
+
+# A2A (Agent2Agent) agent (cmd/a2a, ADR 0006): a second driving adapter over the
+# SAME read use cases as the REST GETs. Skills (both reads): get_product_content
+# and list_categories. READ-ONLY: it writes nothing, so it needs no Kafka, no
+# outbox and no consumer (KAFKA_BROKERS, OFFER_AVAILABILITY_CONSUMER_GROUP and
+# OUTBOX_* are never rendered into it), and it calls no other context. It reads
+# the same Postgres as the api (DATABASE_URL from the same Secret) and applies
+# the embedded migrations on start like the api. Off by default;
+# warehouse-infra turns it on. A2A carries delegation only; facts between
+# contexts still travel as CloudEvents on Kafka. Requires the api (same release)
+# for the data it reads.
+a2a:
+  enabled: false
+  replicaCount: 1
+  # A2A_ADDR the binary listens on; its port must equal service.targetPort.
+  # (8080 is the api; 8093 is the fleet's A2A port.)
+  httpAddr: ":8093"
+  # Absolute URL advertised on the Agent Card (A2A_AGENT_URL, mandatory for the
+  # binary). Empty defaults to this release's in-cluster Service DNS
+  # (http://<release>-a2a.<ns>.svc.cluster.local:8093/); warehouse-infra can
+  # override it with the gateway path when the agent must be reachable
+  # off-cluster.
+  agentUrl: ""
+  service:
+    type: ClusterIP
+    port: 8093
+    targetPort: 8093
+  # Gateway API exposure of the A2A agent (a2a-route.yaml): host path
+  # /api/a2a/product-content rewritten to / (JSON-RPC root; the well-known agent
+  # card stays reachable under the same prefix). Off by default; warehouse-infra
+  # turns it on with the real parentRefs and path.
+  route:
+    enabled: false
+    path: "/api/a2a/product-content"
+    parentRefs:
+      - name: ""
+        namespace: ""
+        sectionName: "http"
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
