@@ -1,0 +1,1 @@
+{"title":"Body","body":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["parentId"],"properties":{"parentId":{"type":"string","nullable":true,"description":"The new parent; null moves the category to the root."}},"title":"MoveCategoryRequest"}}}}}
