@@ -1,0 +1,70 @@
+---
+id: list-product-contents
+title: "List product contents, paged (projection bootstrap)"
+description: "Paged list of product contents of every state, ordered by catalogItemId. Used by product-discovery's projection rebuild (snapshot + catch-up); not part of a user request path. `next` is the cursor of the next page (pass it as `after`); it is absent on the last page."
+sidebar_label: "List product contents, paged (projection bootstrap)"
+hide_title: true
+hide_table_of_contents: true
+api: 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
+sidebar_class_name: "get api-method"
+info_path: docs/api-reference/rest/product-content-api
+custom_edit_url: null
+hide_send_button: true
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"List product contents, paged (projection bootstrap)"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"get"}
+  path={"/product-contents"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+Paged list of product contents of every state, ordered by catalogItemId. Used by product-discovery's projection rebuild (snapshot + catch-up); not part of a user request path. `next` is the cursor of the next page (pass it as `after`); it is absent on the last page.
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails
+  {...require("./list-product-contents.ParamsDetails.json")}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./list-product-contents.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./list-product-contents.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      

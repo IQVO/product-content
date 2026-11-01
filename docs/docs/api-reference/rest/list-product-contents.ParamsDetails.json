@@ -1,0 +1,1 @@
+{"parameters":[{"name":"after","in":"query","required":false,"description":"The catalogItemId after which the page starts.","schema":{"type":"string"}},{"name":"limit","in":"query","required":false,"description":"Page size, 1 to 500 (default 100).","schema":{"type":"integer","minimum":1,"maximum":500,"default":100}}]}
