@@ -76,6 +76,7 @@ so a record written with a span-carrying context gets `trace_id` and `span_id`.
 | --- | --- | --- | --- |
 | `http request` (one per call; `/healthz` and `/readyz` are skipped) | INFO (2xx/3xx), WARN (4xx), ERROR (5xx) | `method`, `route` (pattern, never the raw path), `status`, `duration_ms`, `bytes`, `request_id`, `trace_id`, `span_id` | `internal/adapters/inbound/requestlog/requestlog.go` |
 | `telemetry configured` | INFO | `service_name`, `otlp_endpoint` | `cmd/api/telemetry.go`, `cmd/a2a/main.go` |
+| `readiness: dependency is not ready` | WARN | `dependency` (`postgres` or `kafka`), `error` | `internal/adapters/inbound/http/readiness.go` |
 | `postgres adapters configured` / `postgres read side configured` | INFO | none | `cmd/api/main.go`, `cmd/a2a/main.go` |
 | `retrying`, `succeeded after retry` (boot migrations / first ping) | WARN / INFO | `op`, `attempt`, `in`, `err` | `internal/bootretry/bootretry.go` |
 | `consumer running` | INFO | `consumer`, `topic`, `group_id`, `brokers` | `cmd/api/main.go` |
