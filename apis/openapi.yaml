@@ -22,7 +22,10 @@ info:
     (application/problem+json) whose type is /problems/<slug>; shared types
     are not-found (404), illegal-transition (409), concurrent-update (409) and
     validation-failed (422), plus one kebab-case slug per Err of the model.
-    Every write takes an Idempotency-Key header (24 hours). No authentication.
+    Every POST takes an Idempotency-Key header (24 hours); PUT and DELETE
+    are idempotent by method. Routes follow the fleet REST API guideline:
+    nouns, never verbs (a lifecycle transition is a transition resource such
+    as /revisions or /publications). No authentication.
 servers:
   - url: http://localhost:8080
 tags:
@@ -40,8 +43,8 @@ paths:
         CreateProductContent. The item must exist in the local CatalogItemView
         (fed by offer-availability events) and must not be discontinued. The
         content starts DRAFT at revision 1; the body may be incomplete (the
-        publish gate is checked by :publish). A second create for the same item
-        is a 409 concurrent-update.
+        publish gate is checked by POST /product-contents/{catalogItemId}/publications).
+        A second create for the same item is a 409 concurrent-update.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -53,10 +56,15 @@ paths:
       responses:
         '201':
           description: The created content (DRAFT).
+          headers:
+            Idempotency-Replayed:
+              $ref: '#/components/headers/IdempotencyReplayed'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProductContent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/Conflict'
         '422':
@@ -75,35 +83,23 @@ paths:
       operationId: listProductContents
       summary: List product contents, paged (projection bootstrap)
       description: >-
-        Paged list of product contents of every state, ordered by catalogItemId.
-        Used by product-discovery's projection rebuild (snapshot + catch-up);
-        not part of a user request path. `next` is the cursor of the next page
-        (pass it as `after`); it is absent on the last page.
+        Keyset-paged list of product contents of every state, ordered by
+        catalogItemId. Used by product-discovery's projection rebuild
+        (snapshot + catch-up); not part of a user request path. Follow
+        nextCursor until it is absent. Any query parameter other than limit and
+        cursor is a 400 unknown-query-parameter.
       parameters:
-        - name: after
-          in: query
-          required: false
-          description: The catalogItemId after which the page starts.
-          schema:
-            type: string
-        - name: limit
-          in: query
-          required: false
-          description: Page size, 1 to 500 (default 100).
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 500
-            default: 100
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
       responses:
         '200':
-          description: The page of product contents.
+          description: One page of product contents.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ProductContentList'
-        '422':
-          $ref: '#/components/responses/Unprocessable'
+                $ref: '#/components/schemas/ProductContentPage'
+        '400':
+          $ref: '#/components/responses/BadRequestPage'
   /product-contents/{catalogItemId}:
     get:
       tags: [ProductContents]
@@ -121,7 +117,7 @@ paths:
                 $ref: '#/components/schemas/ProductContent'
         '404':
           $ref: '#/components/responses/NotFound'
-  /product-contents/{catalogItemId}:revise:
+  /product-contents/{catalogItemId}/revisions:
     post:
       tags: [ProductContents]
       operationId: reviseProductContent
@@ -131,7 +127,7 @@ paths:
         chosen by the state. The body replaces the whole editable content and
         takes a new revision. PUBLISHED content must stay complete
         (incomplete-content otherwise) and shoppers see the revision only after
-        :publish publishes it. Revising RETIRED content is a 409
+        POST /product-contents/{catalogItemId}/publications publishes it. Revising RETIRED content is a 409
         content-retired.
       parameters:
         - $ref: '#/components/parameters/CatalogItemId'
@@ -145,14 +141,19 @@ paths:
       responses:
         '200':
           description: The revised content.
+          headers:
+            Idempotency-Replayed:
+              $ref: '#/components/headers/IdempotencyReplayed'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProductContent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          description: content-retired (ErrContentRetired) or concurrent-update.
+          description: content-retired (ErrContentRetired), concurrent-update or idempotency-key-reused.
           content:
             application/problem+json:
               schema:
@@ -166,7 +167,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
-  /product-contents/{catalogItemId}:publish:
+  /product-contents/{catalogItemId}/publications:
     post:
       tags: [ProductContents]
       operationId: publishProductContent
@@ -184,14 +185,19 @@ paths:
       responses:
         '200':
           description: The published content.
+          headers:
+            Idempotency-Replayed:
+              $ref: '#/components/headers/IdempotencyReplayed'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProductContent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          description: content-retired (ErrContentRetired) or concurrent-update.
+          description: content-retired (ErrContentRetired), concurrent-update or idempotency-key-reused.
           content:
             application/problem+json:
               schema:
@@ -205,14 +211,14 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
-  /product-contents/{catalogItemId}:retire:
+  /product-contents/{catalogItemId}/retirements:
     post:
       tags: [ProductContents]
       operationId: retireProductContent
       summary: Retire the published content of a catalogue item
       description: >-
         RetireContent. PUBLISHED to RETIRED (terminal). A DRAFT is discarded
-        with :discard instead. RetireOnDiscontinue retires content
+        with DELETE /product-contents/{catalogItemId}/draft instead. RetireOnDiscontinue retires content
         automatically when the network discontinues the item. Publishes
         ProductContentRetired.
       parameters:
@@ -221,29 +227,35 @@ paths:
       responses:
         '200':
           description: The retired content.
+          headers:
+            Idempotency-Replayed:
+              $ref: '#/components/headers/IdempotencyReplayed'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProductContent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          description: illegal-transition (the content is DRAFT or already RETIRED) or concurrent-update.
+          description: illegal-transition (the content is DRAFT or already RETIRED), concurrent-update or idempotency-key-reused.
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
-  /product-contents/{catalogItemId}:discard:
-    post:
+  /product-contents/{catalogItemId}/draft:
+    delete:
       tags: [ProductContents]
       operationId: discardProductContentDraft
       summary: Discard the draft content of a catalogue item
       description: >-
         DiscardDraft. DRAFT to RETIRED with retiredReason DISCARDED. Nothing was
-        ever published, so no event is raised.
+        ever published, so no event is raised. DELETE is idempotent by method
+        and takes no Idempotency-Key; a repeat finds the content already RETIRED
+        and answers 409 illegal-transition.
       parameters:
         - $ref: '#/components/parameters/CatalogItemId'
-        - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '200':
           description: The discarded content (RETIRED, reason DISCARDED).
@@ -280,10 +292,15 @@ paths:
       responses:
         '201':
           description: The created category.
+          headers:
+            Idempotency-Replayed:
+              $ref: '#/components/headers/IdempotencyReplayed'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Category'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/Conflict'
         '422':
@@ -299,10 +316,13 @@ paths:
       tags: [Categories]
       operationId: listCategories
       summary: Get the category tree
+      x-pagination-exempt: view
       description: >-
         Returns the categories of the current CategoryTree version, ordered by
         path (parents before children). Before the first category the tree is
-        version 0 and empty.
+        version 0 and empty. Not paged (x-pagination-exempt: view): the tree
+        is ONE versioned aggregate, so one response is one consistent snapshot
+        of one version; the tree is at most four levels deep.
       responses:
         '200':
           description: The category tree.
@@ -310,7 +330,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CategoryList'
-  /categories:publish:
+  /category-tree-publications:
     post:
       tags: [Categories]
       operationId: publishCategoryTree
@@ -324,23 +344,29 @@ paths:
       responses:
         '200':
           description: The published tree.
+          headers:
+            Idempotency-Replayed:
+              $ref: '#/components/headers/IdempotencyReplayed'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/CategoryList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/Conflict'
-  /categories/{categoryId}:move:
-    post:
+  /categories/{categoryId}/parent:
+    put:
       tags: [Categories]
       operationId: moveCategory
       summary: Move a category under a new parent
       description: >-
-        MoveCategory. The subtree moves with the category. Moving never creates
-        a cycle and never exceeds depth four. Publishes a new tree version.
+        MoveCategory. Replaces the parent of the category; the subtree moves
+        with it. Moving never creates a cycle and never exceeds depth four.
+        Publishes a new tree version. PUT is idempotent by method and takes no
+        Idempotency-Key.
       parameters:
         - $ref: '#/components/parameters/CategoryId'
-        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -367,17 +393,17 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
-  /categories/{categoryId}:rename:
-    post:
+  /categories/{categoryId}/name:
+    put:
       tags: [Categories]
       operationId: renameCategory
       summary: Rename a category
       description: >-
-        RenameCategory. Siblings never share a name. The paths of the subtree
-        follow. Publishes a new tree version.
+        RenameCategory. Replaces the name of the category. Siblings never share
+        a name. The paths of the subtree follow. Publishes a new tree version.
+        PUT is idempotent by method and takes no Idempotency-Key.
       parameters:
         - $ref: '#/components/parameters/CategoryId'
-        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -407,11 +433,34 @@ components:
       name: Idempotency-Key
       in: header
       required: true
-      description: A repeated key returns the stored response of the first call.
+      description: >-
+        Client-generated UUID per logical submit (1 to 128 printable ASCII
+        characters); a retry reuses it. The same key with the same request
+        (method, path, body) replays the stored answer with
+        Idempotency-Replayed: true; the same key with another request is 409
+        idempotency-key-reused. Missing is 400 idempotency-key-required,
+        malformed is 400 idempotency-key-invalid.
       schema:
         type: string
         minLength: 1
         maxLength: 128
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Page size, 1 to 500 (default 100). Anything else is 400 invalid-limit.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+        default: 100
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Opaque token copied from the previous page's nextCursor; absent on the first page. One that does not decode is 400 invalid-cursor.
+      schema:
+        type: string
     CatalogItemId:
       name: catalogItemId
       in: path
@@ -424,7 +473,25 @@ components:
       required: true
       schema:
         type: string
+  headers:
+    IdempotencyReplayed:
+      description: '"true" when the answer is the stored response of an earlier request with the same Idempotency-Key; absent on the first execution.'
+      schema:
+        type: string
+        enum: ['true']
   responses:
+    BadRequest:
+      description: idempotency-key-required (no Idempotency-Key header), idempotency-key-invalid (not 1 to 128 printable ASCII characters) or malformed-request.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    BadRequestPage:
+      description: invalid-limit (limit is not an integer from 1 to 500), invalid-cursor (cursor does not decode) or unknown-query-parameter (any parameter other than limit and cursor).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
     NotFound:
       description: not-found.
       content:
@@ -432,13 +499,10 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
     Conflict:
-      description: concurrent-update (another writer got in between the load and the save).
-      content:
-        application/problem+json:
-          schema:
-            $ref: '#/components/schemas/Problem'
-    Unprocessable:
-      description: validation-failed (invalid query parameter).
+      description: >-
+        concurrent-update (another writer got in between the load and the save),
+        a business conflict, or idempotency-key-reused (the Idempotency-Key was
+        already used with a different method, path or body).
       content:
         application/problem+json:
           schema:
@@ -557,7 +621,7 @@ components:
             publishedRevision:
               type: integer
               minimum: 0
-              description: The revision last published (0 = never). Shoppers see this revision; a PUBLISHED content with revision above it waits for :publish.
+              description: The revision last published (0 = never). Shoppers see this revision; a PUBLISHED content with revision above it waits for a publication.
             retiredReason:
               type: string
               enum: [MANUAL, DISCARDED, DISCONTINUED]
@@ -577,7 +641,7 @@ components:
               format: date-time
               description: Present exactly when the state is RETIRED.
         - $ref: '#/components/schemas/ContentBody'
-    ProductContentList:
+    ProductContentPage:
       type: object
       required: [items]
       properties:
@@ -585,9 +649,9 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ProductContent'
-        next:
+        nextCursor:
           type: string
-          nullable: true
+          description: Opaque cursor of the next page; absent on the last page.
     Category:
       type: object
       required: [categoryId, name, path]
