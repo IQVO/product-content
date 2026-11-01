@@ -35,7 +35,14 @@ function HomepageHeader() {
           {siteConfig.title}
         </Heading>
         <p className={styles.heroSubtitle}>{siteConfig.tagline}</p>
-        <p className={styles.heroLead}>TODO-LEAD</p>
+        <p className={styles.heroLead}>
+          A Go service that enriches the catalogue items the retail network already
+          knows with a description, bullets, attributes, media and a place in one
+          versioned category tree. Content is published only when complete, leaves
+          as full-content CloudEvents through a transactional outbox, and retires
+          itself when the network discontinues the item. Run it, configure it and
+          operate it from these pages.
+        </p>
         <div className={styles.buttons}>
           <Link className="button button--primary button--lg" to="/docs/overview/introduction">
             Read the docs

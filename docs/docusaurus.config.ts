@@ -6,7 +6,7 @@ import type * as OpenApiPlugin from 'docusaurus-plugin-openapi-docs';
 const config: Config = {
   title: 'Product Content',
   tagline:
-    'Product Content: a Generic bounded context of the storefront domain (warehouse-systems).',
+    'Descriptions, media and the category tree for every catalogue item: drafted, published as numbered revisions and retired with the item.',
   favicon: 'img/favicon.svg',
 
   future: {
