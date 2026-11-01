@@ -194,6 +194,10 @@ jobs:
         run: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
       - name: Mutation testing (every domain package)
         run: |
+          # Cap virtual memory so a mutant that allocates without bound (e.g. a negated cycle
+          # check that makes pathOf walk a cycle at ~500 MB/s) dies with "out of memory" and is
+          # KILLED, instead of exhausting the runner VM, which cancels the job mid-run.
+          ulimit -v 4000000
           for pkg in ./internal/domain/*/; do
             echo "== gremlins unleash ${pkg%/}"
             gremlins unleash "${pkg%/}" || exit 1
@@ -214,7 +218,12 @@ jobs:
       - name: Install gremlins
         run: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
       - name: Mutation testing (domain layer)
-        run: gremlins unleash ./internal/domain --workers 1 --timeout-coefficient 30
+        run: |
+          # Cap virtual memory so a mutant that allocates without bound (e.g. a negated cycle
+          # check that makes pathOf walk a cycle at ~500 MB/s) dies with "out of memory" and is
+          # KILLED, instead of exhausting the runner VM, which cancels the job mid-run.
+          ulimit -v 4000000
+          gremlins unleash ./internal/domain --workers 1 --timeout-coefficient 30
       - name: Open or refresh the harness:red issue on a scheduled failure
         if: failure() && github.event_name == 'schedule'
         env:
