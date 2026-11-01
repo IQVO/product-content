@@ -9,7 +9,7 @@ Feature: The category tree and the API conventions
       {"parentId":"{category:Drinkware}","name":"Bottles"}
       """
     Then the API answers 201
-    When the API posts to "/categories:publish" with Idempotency-Key "k2"
+    When the API posts to "/category-tree-publications" with Idempotency-Key "k2"
     Then the API answers 200
     # two creates and the explicit publish each announce a new tree version
     And 3 "CategoryTreePublished" events were published
@@ -50,4 +50,13 @@ Feature: The category tree and the API conventions
       """
       {"name":"Mugs"}
       """
-    Then the API answers 422 with problem "idempotency-key-reused"
+    Then the API answers 409 with problem "idempotency-key-reused"
+
+  Scenario: A category is renamed by replacing its name
+    Given a category "Drinkware" exists
+    When the API puts to "/categories/{category:Drinkware}/name" the body:
+      """
+      {"name":"Bottles"}
+      """
+    Then the API answers 200
+    And the API response field "name" is "Bottles"

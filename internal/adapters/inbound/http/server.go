@@ -19,20 +19,9 @@ import (
 	"github.com/IQVO/product-content/internal/application/usecases"
 )
 
-// Route names under which the Idempotency-Key records are stored.
-const (
-	routeCreate          = "POST /product-contents"
-	routeRevise          = "POST /product-contents/{catalogItemId}:revise"
-	routePublish         = "POST /product-contents/{catalogItemId}:publish"
-	routeRetire          = "POST /product-contents/{catalogItemId}:retire"
-	routeDiscard         = "POST /product-contents/{catalogItemId}:discard"
-	routeCreateCategory  = "POST /categories"
-	routePublishCategory = "POST /categories:publish"
-	routeMoveCategory    = "POST /categories/{categoryId}:move"
-	routeRenameCategory  = "POST /categories/{categoryId}:rename"
-)
-
-// Server holds the use cases the handlers call.
+// Server holds the use cases the handlers call. The six POST routes sit behind
+// the Idempotency-Key middleware; PUT and DELETE are idempotent by method and
+// take none (a key sent to them is accepted and ignored).
 type Server struct {
 	CreateProductContent usecases.CreateProductContent
 	ReviseContent        usecases.ReviseContent
@@ -49,7 +38,7 @@ type Server struct {
 	ListCategories      usecases.ListCategories
 
 	// IdempotencyStore and Clock back the Idempotency-Key middleware of the
-	// POST routes.
+	// POST routes (the key is global, not per route).
 	IdempotencyStore ports.IdempotencyStore
 	Clock            ports.Clock
 	// Readiness backs GET /readyz; nil means always ready (unit tests).
@@ -87,22 +76,22 @@ func NewRouter(s *Server, logger *slog.Logger, serviceName string) http.Handler 
 	r.Get("/healthz", handleHealthz)
 	r.Get("/readyz", s.handleReadyz)
 
-	r.With(s.idempotent(routeCreate)).Post("/product-contents", s.handleCreate)
+	r.With(s.idempotent).Post("/product-contents", s.handleCreate)
 	r.Get("/product-contents", s.handleList)
 	r.Get("/product-contents/{catalogItemId}", s.handleGet)
-	r.With(s.idempotent(routeRevise)).Post("/product-contents/{catalogItemId}:revise", s.handleRevise)
-	r.With(s.idempotent(routePublish)).Post("/product-contents/{catalogItemId}:publish", s.handlePublish)
-	r.With(s.idempotent(routeRetire)).Post("/product-contents/{catalogItemId}:retire", s.handleRetire)
-	r.With(s.idempotent(routeDiscard)).Post("/product-contents/{catalogItemId}:discard", s.handleDiscard)
+	r.With(s.idempotent).Post("/product-contents/{catalogItemId}/revisions", s.handleRevise)
+	r.With(s.idempotent).Post("/product-contents/{catalogItemId}/publications", s.handlePublish)
+	r.With(s.idempotent).Post("/product-contents/{catalogItemId}/retirements", s.handleRetire)
+	r.Delete("/product-contents/{catalogItemId}/draft", s.handleDiscard)
 
-	r.With(s.idempotent(routeCreateCategory)).Post("/categories", s.handleCreateCategory)
+	r.With(s.idempotent).Post("/categories", s.handleCreateCategory)
 	r.Get("/categories", s.handleListCategories)
-	r.With(s.idempotent(routePublishCategory)).Post("/categories:publish", s.handlePublishCategories)
-	r.With(s.idempotent(routeMoveCategory)).Post("/categories/{categoryId}:move", s.handleMoveCategory)
-	r.With(s.idempotent(routeRenameCategory)).Post("/categories/{categoryId}:rename", s.handleRenameCategory)
+	r.With(s.idempotent).Post("/category-tree-publications", s.handlePublishCategories)
+	r.Put("/categories/{categoryId}/parent", s.handleMoveCategory)
+	r.Put("/categories/{categoryId}/name", s.handleRenameCategory)
 	return r
 }
 
-func (s *Server) idempotent(route string) func(http.Handler) http.Handler {
-	return RequireIdempotencyKey(s.IdempotencyStore, s.Clock, route)
+func (s *Server) idempotent(next http.Handler) http.Handler {
+	return RequireIdempotencyKey(s.IdempotencyStore, s.Clock)(next)
 }

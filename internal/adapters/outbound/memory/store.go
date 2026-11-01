@@ -27,8 +27,6 @@ import (
 	"github.com/IQVO/product-content/internal/domain/shared"
 )
 
-type idemKey struct{ route, key string }
-
 // Store is the shared state of the in-memory doubles.
 type Store struct {
 	mu          sync.Mutex
@@ -37,7 +35,7 @@ type Store struct {
 	items       map[string]readmodel.CatalogItem
 	inbox       map[string]string
 	outbox      []shared.Event
-	idempotency map[idemKey]idempotency.Record
+	idempotency map[string]idempotency.Record
 	clock       ports.Clock
 }
 
@@ -48,7 +46,7 @@ type Store struct {
 func NewStore(clock ports.Clock) *Store {
 	return &Store{
 		contents: map[content.ID]content.Snapshot{}, items: map[string]readmodel.CatalogItem{},
-		inbox: map[string]string{}, idempotency: map[idemKey]idempotency.Record{}, clock: clock,
+		inbox: map[string]string{}, idempotency: map[string]idempotency.Record{}, clock: clock,
 	}
 }
 

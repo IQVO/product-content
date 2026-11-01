@@ -37,25 +37,25 @@ func TestContentLifecycleOverHTTP(t *testing.T) {
 		t.Fatalf("state = %v", got)
 	}
 	e.wantStatus(e.get("/product-contents/item-1"), http.StatusOK)
-	r = e.post("/product-contents/item-1:revise", `{"description":"New text","bullets":[],"attributes":[],"media":[],"primaryCategoryId":"`+cat+`"}`)
+	r = e.post("/product-contents/item-1/revisions", `{"description":"New text","bullets":[],"attributes":[],"media":[],"primaryCategoryId":"`+cat+`"}`)
 	e.wantStatus(r, http.StatusOK)
-	r = e.post("/product-contents/item-1:revise", e.createBody(cat))
+	r = e.post("/product-contents/item-1/revisions", e.createBody(cat))
 	e.wantStatus(r, http.StatusOK)
-	r = e.post("/product-contents/item-1:publish", "")
+	r = e.post("/product-contents/item-1/publications", "")
 	e.wantStatus(r, http.StatusOK)
 	if got := r.json(t)["state"]; got != "PUBLISHED" {
 		t.Fatalf("state = %v", got)
 	}
-	r = e.post("/product-contents/item-1:retire", "")
+	r = e.post("/product-contents/item-1/retirements", "")
 	e.wantStatus(r, http.StatusOK)
-	e.wantProblem(e.post("/product-contents/item-1:publish", ""), http.StatusConflict, "content-retired")
+	e.wantProblem(e.post("/product-contents/item-1/publications", ""), http.StatusConflict, "content-retired")
 }
 
 func TestDiscardOverHTTP(t *testing.T) {
 	e := newEnv(t)
 	cat := e.seed()
 	e.wantStatus(e.post("/product-contents", e.createBody(cat)), http.StatusCreated)
-	r := e.post("/product-contents/item-1:discard", "")
+	r := e.del("/product-contents/item-1/draft")
 	e.wantStatus(r, http.StatusOK)
 	if got := r.json(t)["retiredReason"]; got != "DISCARDED" {
 		t.Fatalf("retiredReason = %v", got)
@@ -67,12 +67,12 @@ func TestContentErrorsOverHTTP(t *testing.T) {
 	cat := e.seed()
 	e.wantProblem(e.post("/product-contents", fmt.Sprintf(`{"catalogItemId":"ghost","description":"d","primaryCategoryId":"%s"}`, cat)), http.StatusUnprocessableEntity, "unknown-catalog-item")
 	e.wantProblem(e.get("/product-contents/ghost"), http.StatusNotFound, "not-found")
-	e.wantProblem(e.post("/product-contents/ghost:publish", ""), http.StatusNotFound, "not-found")
+	e.wantProblem(e.post("/product-contents/ghost/publications", ""), http.StatusNotFound, "not-found")
 	e.wantProblem(e.post("/product-contents", `{"nope":1}`), http.StatusBadRequest, "malformed-request")
-	e.wantProblem(e.post("/product-contents/item-1:revise", `{"catalogItemId":"other"}`), http.StatusUnprocessableEntity, "validation-failed")
+	e.wantProblem(e.post("/product-contents/item-1/revisions", `{"catalogItemId":"other"}`), http.StatusUnprocessableEntity, "validation-failed")
 	e.wantStatus(e.post("/product-contents", e.createBody(cat)), http.StatusCreated)
 	e.wantProblem(e.post("/product-contents", e.createBody(cat)), http.StatusConflict, "concurrent-update")
-	e.wantProblem(e.post("/product-contents/item-1:retire", ""), http.StatusConflict, "illegal-transition")
+	e.wantProblem(e.post("/product-contents/item-1/retirements", ""), http.StatusConflict, "illegal-transition")
 }
 
 func TestListContentsOverHTTP(t *testing.T) {
@@ -84,6 +84,7 @@ func TestListContentsOverHTTP(t *testing.T) {
 	if items := r.json(t)["items"].([]any); len(items) != 1 {
 		t.Fatalf("items = %v", items)
 	}
-	e.wantProblem(e.get("/product-contents?limit=abc"), http.StatusUnprocessableEntity, "validation-failed")
-	e.wantProblem(e.get("/product-contents?limit=-1"), http.StatusUnprocessableEntity, "validation-failed")
+	if _, has := r.json(t)["nextCursor"]; has {
+		t.Fatalf("the only row must be the last page: %s", r.Body)
+	}
 }

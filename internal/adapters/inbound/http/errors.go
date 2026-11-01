@@ -2,8 +2,10 @@ package http
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 
+	"github.com/IQVO/product-content/internal/adapters/inbound/http/page"
 	"github.com/IQVO/product-content/internal/application/ports"
 	"github.com/IQVO/product-content/internal/domain/category"
 	"github.com/IQVO/product-content/internal/domain/content"
@@ -16,6 +18,15 @@ const problemBase = "/problems/"
 // errMalformedRequest marks a body or parameter the adapter itself rejects
 // (bad JSON, unknown field, wrong type).
 var errMalformedRequest = errors.New("request is not valid for this operation")
+
+// errUnknownQueryParameter marks a query parameter a collection GET does not
+// declare (REST guideline 4.2): a consumer still sending a retired paging
+// parameter fails loudly instead of reading page one forever.
+var errUnknownQueryParameter = errors.New("unknown query parameter")
+
+func errUnknownQueryParameterNamed(name string) error {
+	return fmt.Errorf("%w: %s", errUnknownQueryParameter, name)
+}
 
 // problem is the fixed (status, slug, title) of one error category; the detail
 // comes from the error at write time.
@@ -30,7 +41,8 @@ var internalProblem = problem{http.StatusInternalServerError, "internal-error", 
 // Problems the adapter writes itself, before any use case runs.
 var (
 	idempotencyKeyRequired = problem{http.StatusBadRequest, "idempotency-key-required", "Idempotency-Key header is required"}
-	idempotencyKeyReused   = problem{http.StatusUnprocessableEntity, "idempotency-key-reused", "Idempotency-Key was already used with a different request"}
+	idempotencyKeyInvalid  = problem{http.StatusBadRequest, "idempotency-key-invalid", "Idempotency-Key header is invalid"}
+	idempotencyKeyReused   = problem{http.StatusConflict, "idempotency-key-reused", "Idempotency-Key was already used with a different request"}
 )
 
 func unprocessable(slug, title string) problem {
@@ -48,6 +60,9 @@ var problemCatalogue = []struct {
 	p   problem
 }{
 	{errMalformedRequest, problem{http.StatusBadRequest, "malformed-request", "Malformed request"}},
+	{errUnknownQueryParameter, problem{http.StatusBadRequest, "unknown-query-parameter", "Unknown query parameter"}},
+	{page.ErrInvalidLimit, problem{http.StatusBadRequest, "invalid-limit", "limit must be an integer between 1 and 500"}},
+	{page.ErrInvalidCursor, problem{http.StatusBadRequest, "invalid-cursor", "cursor is not a valid page token"}},
 	{ports.ErrNotFound, problem{http.StatusNotFound, "not-found", "Not found"}},
 	{category.ErrCategoryNotFound, problem{http.StatusNotFound, "not-found", "Not found"}},
 	{content.ErrContentRetired, conflict("content-retired", "Retired content never changes or publishes again")},

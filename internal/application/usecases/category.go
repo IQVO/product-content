@@ -50,7 +50,7 @@ type MoveCategoryInput struct {
 	ParentID   string
 }
 
-// MoveCategory is the command MoveCategory (POST /categories/{id}:move).
+// MoveCategory is the command MoveCategory (PUT /categories/{id}/parent).
 type MoveCategory struct{ Deps }
 
 // Execute moves a category with its subtree and publishes the new version.
@@ -77,7 +77,7 @@ type RenameCategoryInput struct {
 	Name       string
 }
 
-// RenameCategory is the command RenameCategory (POST /categories/{id}:rename).
+// RenameCategory is the command RenameCategory (PUT /categories/{id}/name).
 type RenameCategory struct{ Deps }
 
 // Execute renames a category and publishes the new version.
@@ -99,7 +99,7 @@ func (u RenameCategory) Execute(ctx context.Context, in RenameCategoryInput) (vi
 }
 
 // PublishCategoryTree is the command PublishCategoryTree
-// (POST /categories:publish).
+// (POST /category-tree-publications).
 type PublishCategoryTree struct{ Deps }
 
 // Execute publishes the live tree again under a new version.

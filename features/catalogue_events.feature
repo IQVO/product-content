@@ -14,7 +14,7 @@ Feature: Content follows the catalogue through offer-availability events
        "media":[{"mediaId":"m1","url":"https://static.example.invalid/a.jpg","altText":"side","role":"PRIMARY"}],
        "primaryCategoryId":"{category:Bottles}"}
       """
-    And the API posts to "/product-contents/sku-1:publish" with Idempotency-Key "p1"
+    And the API posts to "/product-contents/sku-1/publications" with Idempotency-Key "p1"
     When offer-availability reports item "sku-1" discontinued
     And the API requests "/product-contents/sku-1"
     Then the API response field "state" is "RETIRED"
@@ -40,7 +40,7 @@ Feature: Content follows the catalogue through offer-availability events
        "media":[{"mediaId":"m1","url":"https://static.example.invalid/a.jpg","altText":"side","role":"PRIMARY"}],
        "primaryCategoryId":"{category:Bottles}"}
       """
-    And the API posts to "/product-contents/sku-1:publish" with Idempotency-Key "p1"
+    And the API posts to "/product-contents/sku-1/publications" with Idempotency-Key "p1"
     When offer-availability reports item "sku-1" discontinued
     And the discontinuation of "sku-1" is delivered again
     Then 1 "ProductContentRetired" events were published

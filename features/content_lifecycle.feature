@@ -16,7 +16,7 @@ Feature: Product content moves DRAFT, PUBLISHED, RETIRED
       """
     Then the API answers 201
     And the API response field "state" is "DRAFT"
-    When the API posts to "/product-contents/sku-1:publish" with Idempotency-Key "p1"
+    When the API posts to "/product-contents/sku-1/publications" with Idempotency-Key "p1"
     Then the API answers 200
     And the API response field "state" is "PUBLISHED"
     And 1 "ProductContentPublished" events were published
@@ -27,7 +27,7 @@ Feature: Product content moves DRAFT, PUBLISHED, RETIRED
       {"catalogItemId":"sku-1","description":"No picture yet."}
       """
     Then the API answers 201
-    When the API posts to "/product-contents/sku-1:publish" with Idempotency-Key "p2"
+    When the API posts to "/product-contents/sku-1/publications" with Idempotency-Key "p2"
     Then the API answers 422 with problem "incomplete-content"
     And 0 "ProductContentPublished" events were published
 
@@ -36,7 +36,7 @@ Feature: Product content moves DRAFT, PUBLISHED, RETIRED
       """
       {"catalogItemId":"sku-1","description":"Throw away."}
       """
-    And the API posts to "/product-contents/sku-1:discard" with Idempotency-Key "d3"
+    And the API deletes "/product-contents/sku-1/draft"
     Then the API answers 200
     And the API response field "state" is "RETIRED"
     And the API response field "retiredReason" is "DISCARDED"

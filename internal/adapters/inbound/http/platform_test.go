@@ -9,17 +9,25 @@ import (
 func TestIdempotencyKeyRequiredAndReplay(t *testing.T) {
 	e := newEnv(t)
 	e.wantProblem(e.do(http.MethodPost, "/categories", "", `{"name":"A"}`), http.StatusBadRequest, "idempotency-key-required")
-	e.wantProblem(e.do(http.MethodPost, "/categories", strings.Repeat("k", 129), `{"name":"A"}`), http.StatusBadRequest, "idempotency-key-required")
+	e.wantProblem(e.do(http.MethodPost, "/categories", strings.Repeat("k", 129), `{"name":"A"}`), http.StatusBadRequest, "idempotency-key-invalid")
+	e.wantProblem(e.do(http.MethodPost, "/categories", "caf\u00e9", `{"name":"A"}`), http.StatusBadRequest, "idempotency-key-invalid")
+	e.wantProblem(e.do(http.MethodPost, "/categories", "tab\there", `{"name":"A"}`), http.StatusBadRequest, "idempotency-key-invalid")
+	if r := e.do(http.MethodPost, "/categories", strings.Repeat("k", 128), `{"name":"Max"}`); r.Status != http.StatusCreated {
+		t.Fatalf("a 128-character key is valid: %d %s", r.Status, r.Body)
+	}
 
 	first := e.do(http.MethodPost, "/categories", "k1", `{"name":"A"}`)
 	e.wantStatus(first, http.StatusCreated)
+	if got := first.Header.Get("Idempotency-Replayed"); got != "" {
+		t.Fatalf("the first execution carries Idempotency-Replayed: %q", got)
+	}
 	again := e.do(http.MethodPost, "/categories", "k1", `{"name":"A"}`)
 	e.wantStatus(again, http.StatusCreated)
-	if again.Body != first.Body || again.Header.Get("Idempotent-Replayed") != "true" {
+	if again.Body != first.Body || again.Header.Get("Idempotency-Replayed") != "true" {
 		t.Fatalf("replay differs: %q vs %q (%v)", again.Body, first.Body, again.Header)
 	}
-	e.wantProblem(e.do(http.MethodPost, "/categories", "k1", `{"name":"B"}`), http.StatusUnprocessableEntity, "idempotency-key-reused")
-	if n := len(e.get("/categories").json(t)["categories"].([]any)); n != 1 {
+	e.wantProblem(e.do(http.MethodPost, "/categories", "k1", `{"name":"B"}`), http.StatusConflict, "idempotency-key-reused")
+	if n := len(e.get("/categories").json(t)["categories"].([]any)); n != 2 {
 		t.Fatalf("replay created again: %d categories", n)
 	}
 }
@@ -40,7 +48,7 @@ func TestOversizedBodyIsMalformed(t *testing.T) {
 func TestRejectNUL(t *testing.T) {
 	e := newEnv(t)
 	e.wantProblem(e.get("/product-contents/a%00b"), http.StatusNotFound, "resource-not-found")
-	e.wantProblem(e.get("/product-contents?after=a%00b"), http.StatusBadRequest, "malformed-request")
+	e.wantProblem(e.get("/product-contents?cursor=a%00b"), http.StatusBadRequest, "malformed-request")
 	e.wantProblem(e.post("/categories", `{"name":"a\u0000b"}`), http.StatusBadRequest, "malformed-request")
 	e.wantProblem(e.post("/categories", "{\"name\":\"a\x00b\"}"), http.StatusBadRequest, "malformed-request")
 	e.wantStatus(e.post("/categories", `{"name":"a\\u0000b"}`), http.StatusCreated)
