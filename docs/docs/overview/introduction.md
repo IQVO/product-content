@@ -68,17 +68,17 @@ Packaged as a `Dockerfile` that builds both binaries and the Helm chart
 ## Main capabilities
 
 1. Create a content draft for a known, not discontinued catalogue item and
-   revise it (`POST /product-contents`, `:revise`), up to the collection
+   revise it (`POST /product-contents`, `/revisions`), up to the collection
    bounds.
-2. Publish the current revision (`:publish`): a full-content
+2. Publish the current revision (`/publications`): a full-content
    `ProductContentPublished` event reaches `product-discovery` without a call
    back. Publishing again after a revision of live content publishes the new
    revision; publishing a revision that is already live changes nothing.
-3. Retire published content (`:retire`) or discard a draft (`:discard`); the
+3. Retire published content (`/retirements`) or discard a draft (`DELETE .../draft`); the
    network's `CatalogItemDiscontinued` does the same on its own.
-4. Create, move and rename categories (`/categories`, `:move`, `:rename`); every
+4. Create, move and rename categories (`/categories`, `PUT .../parent`, `PUT .../name`); every
    one publishes the whole tree under a new version, and
-   `POST /categories:publish` re-sends the tree on demand.
+   `POST /category-tree-publications` re-sends the tree on demand.
 5. Read content (paged, for a projection rebuild) and the category tree over
    REST, or the same two reads as A2A skills (`get_product_content`,
    `list_categories`).

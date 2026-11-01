@@ -21,11 +21,11 @@ in the aggregator.
 | --- | --- | --- | --- |
 | **Product Content** | Description, bullets, attributes, media and primary category of one catalogue item, with a lifecycle and a revision. | `content.ProductContent` (`internal/domain/content/content.go`) | **Catalog Item** (`offer-availability`): the network's own entry for the product, with title, dimensions and GTIN. Content never redefines the item; only `catalogItemId` crosses the boundary. |
 | **Revision** | The number of the current shape of an item's content: 1 at creation, plus one per revise. Publishing publishes the current revision. | `content.ProductContent.Revision()` | The optimistic-concurrency `version`, which grows with every change and is a storage detail. `product-discovery` orders content by `revision`. |
-| **Published revision** | The revision last published; 0 when never published. When it equals `revision` there is nothing new to publish. | `content.ProductContent.PublishedRevision()` | `revision`: a revision exists as soon as it is saved, a published revision only after `:publish`. |
+| **Published revision** | The revision last published; 0 when never published. When it equals `revision` there is nothing new to publish. | `content.ProductContent.PublishedRevision()` | `revision`: a revision exists as soon as it is saved, a published revision only after `/publications`. |
 | **Primary medium** | The one image a product page leads with; exactly one per published content. | `content.RolePrimary` | A `GALLERY` medium: any other picture. Publish fails without exactly one `PRIMARY`. |
 | **Category** | One node of the browsable tree: `categoryId`, `parentId`, `name` and a derived `path`. | `category.Category` | The **primary category** a content names by `primaryCategoryId`: every category is a node, only one per content is primary. |
 | **Category tree** | The single, live, versioned tree of categories, id `main`, at most four levels and 5000 categories. | `category.Tree` | The catalogue (`offer-availability`): the tree orders browsing, not the item master. |
-| **Tree version** | The tree aggregate's version, which grows with every category command and every `POST /categories:publish`. | `category.Tree.Version()` | A content `revision`: they count independent things. |
+| **Tree version** | The tree aggregate's version, which grows with every category command and every `POST /category-tree-publications`. | `category.Tree.Version()` | A content `revision`: they count independent things. |
 
 ## Model elements of this context
 
@@ -44,7 +44,7 @@ in the aggregator.
 | **Discard** | A content manager abandons a DRAFT: it becomes `RETIRED` with reason `DISCARDED` and no event. | `content.ProductContent.DiscardDraft`, `usecases.DiscardDraft` | Retire: discarding is for drafts, retiring for published content. |
 | **Outbox** | The table written in the same transaction as the aggregate, drained to Kafka by the relay. | `outbox_events`, `outbox.Message`, relay in `internal/adapters/outbound/outbox` | The Kafka topic: a row is not an event on the wire until the relay has sent it. |
 | **Inbox** | The table of consumed CloudEvents ids, so each consumed event applies once. | `processed_events`, `ports.Inbox` | The idempotency keys, which dedupe REST writes, not consumed events. |
-| **Idempotency key** | The `Idempotency-Key` header of a write, remembered 24 hours per route. | `idempotency_keys`, `idempotency.Record` | The CloudEvents `id`. |
+| **Idempotency key** | The `Idempotency-Key` header of a write, remembered 24 hours by key alone. | `idempotency_keys`, `idempotency.Record` | The CloudEvents `id`. |
 
 ## Neighbour terms this context uses
 

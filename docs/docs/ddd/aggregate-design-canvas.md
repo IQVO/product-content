@@ -95,11 +95,11 @@ publish gate, not a creation rule.
 | Command | Trigger | Transition |
 | --- | --- | --- |
 | `Create` | REST `POST /product-contents` | none to `DRAFT` |
-| `ReviseDraft` | REST `POST /product-contents/{catalogItemId}:revise` on a DRAFT | `DRAFT` to `DRAFT` |
+| `ReviseDraft` | REST `POST /product-contents/{catalogItemId}/revisions` on a DRAFT | `DRAFT` to `DRAFT` |
 | `ReviseContent` | the same route on PUBLISHED content | `PUBLISHED` to `PUBLISHED` |
-| `Publish` | REST `POST /product-contents/{catalogItemId}:publish` | `DRAFT` to `PUBLISHED`, `PUBLISHED` to `PUBLISHED` |
-| `DiscardDraft` | REST `POST /product-contents/{catalogItemId}:discard` | `DRAFT` to `RETIRED` (`DISCARDED`) |
-| `Retire` | REST `POST /product-contents/{catalogItemId}:retire` | `PUBLISHED` to `RETIRED` (`MANUAL`) |
+| `Publish` | REST `POST /product-contents/{catalogItemId}/publications` | `DRAFT` to `PUBLISHED`, `PUBLISHED` to `PUBLISHED` |
+| `DiscardDraft` | REST `DELETE /product-contents/{catalogItemId}/draft` | `DRAFT` to `RETIRED` (`DISCARDED`) |
+| `Retire` | REST `POST /product-contents/{catalogItemId}/retirements` | `PUBLISHED` to `RETIRED` (`MANUAL`) |
 | `RetireOnDiscontinue` | Kafka `CatalogItemDiscontinued` | `PUBLISHED` or `DRAFT` to `RETIRED` (`DISCONTINUED`) |
 
 ### 7. Created events
@@ -187,9 +187,9 @@ None. Structural invariants are refused, not repaired.
 | Command | Trigger | Transition |
 | --- | --- | --- |
 | `CreateCategory` | REST `POST /categories` | `LIVE` to `LIVE` (the first one creates the tree) |
-| `MoveCategory` | REST `POST /categories/{categoryId}:move` | `LIVE` to `LIVE` |
-| `RenameCategory` | REST `POST /categories/{categoryId}:rename` | `LIVE` to `LIVE` |
-| `PublishCategoryTree` | REST `POST /categories:publish` | `LIVE` to `LIVE` |
+| `MoveCategory` | REST `PUT /categories/{categoryId}/parent` | `LIVE` to `LIVE` |
+| `RenameCategory` | REST `PUT /categories/{categoryId}/name` | `LIVE` to `LIVE` |
+| `PublishCategoryTree` | REST `POST /category-tree-publications` | `LIVE` to `LIVE` |
 
 ### 7. Created events
 

@@ -159,7 +159,7 @@ writer sets `AllowAutoTopicCreation`; `/readyz` waits for a broker, not for a to
 | `CatalogItemCreated` arrives after `CatalogItemDiscontinued` | The item stays `DISCONTINUED`; a late Created never revives it. |
 | Poison message | Dead-lettered to `<topic>.dlq`, the partition moves on. |
 | `product-discovery` misses events | It rebuilds from `GET /product-contents` and `GET /categories`; a consumer applies a revision only above the last one it holds, and the tree by `version`, so replays and re-publishes are harmless. |
-| A consumer wants the tree again | `POST /categories:publish` re-sends the whole live tree under a new version. |
+| A consumer wants the tree again | `POST /category-tree-publications` re-sends the whole live tree under a new version. |
 | Two writers race on one aggregate | The conditional save fails with `concurrent-update`; commands retry once (2 attempts), consumed events up to 5 times, then REST answers 409. |
 
 Troubleshooting steps for each row are on [Troubleshooting](/docs/operations/troubleshooting).

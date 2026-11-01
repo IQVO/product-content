@@ -32,17 +32,17 @@ responses.
 | Tag | Endpoint | Operation id | Success |
 | --- | --- | --- | --- |
 | ProductContents | `POST /product-contents` | `createProductContent` | `201`, the DRAFT content at revision 1 |
-| ProductContents | `GET /product-contents` | `listProductContents` | `200 {items, next?}`, every state, ordered by `catalogItemId`; `after`, `limit` 1 to 500 (default 100) |
+| ProductContents | `GET /product-contents` | `listProductContents` | `200 {items, nextCursor?}`, every state, ordered by `catalogItemId`; `cursor`, `limit` 1 to 500 (default 100) |
 | ProductContents | `GET /product-contents/{catalogItemId}` | `getProductContent` | `200`, the content; `404 not-found` |
-| ProductContents | `POST /product-contents/{catalogItemId}:revise` | `reviseProductContent` | `200`, the revised content at its new revision |
-| ProductContents | `POST /product-contents/{catalogItemId}:publish` | `publishProductContent` | `200`, the content as PUBLISHED; unchanged and silent when the current revision is already published |
-| ProductContents | `POST /product-contents/{catalogItemId}:retire` | `retireProductContent` | `200`, the RETIRED content |
-| ProductContents | `POST /product-contents/{catalogItemId}:discard` | `discardProductContentDraft` | `200`, the DRAFT retired with reason `DISCARDED` |
+| ProductContents | `POST /product-contents/{catalogItemId}/revisions` | `reviseProductContent` | `200`, the revised content at its new revision |
+| ProductContents | `POST /product-contents/{catalogItemId}/publications` | `publishProductContent` | `200`, the content as PUBLISHED; unchanged and silent when the current revision is already published |
+| ProductContents | `POST /product-contents/{catalogItemId}/retirements` | `retireProductContent` | `200`, the RETIRED content |
+| ProductContents | `DELETE /product-contents/{catalogItemId}/draft` | `discardProductContentDraft` | `200`, the DRAFT retired with reason `DISCARDED` |
 | Categories | `POST /categories` | `createCategory` | `201`, the category (id minted by the service) |
 | Categories | `GET /categories` | `listCategories` | `200`, the tree version and every category; version 0 and empty before the first one |
-| Categories | `POST /categories:publish` | `publishCategoryTree` | `200`, the live tree republished under a new version |
-| Categories | `POST /categories/{categoryId}:move` | `moveCategory` | `200`, the moved category |
-| Categories | `POST /categories/{categoryId}:rename` | `renameCategory` | `200`, the renamed category |
+| Categories | `POST /category-tree-publications` | `publishCategoryTree` | `200`, the live tree republished under a new version |
+| Categories | `PUT /categories/{categoryId}/parent` | `moveCategory` | `200`, the moved category |
+| Categories | `PUT /categories/{categoryId}/name` | `renameCategory` | `200`, the renamed category |
 | Health | `GET /healthz`, `GET /readyz` | none (not in the spec) | `200 {"status":"ok"}` / `200 {"status":"ready"}`, or `503 {"status":"not_ready"}` once shutdown has started or Postgres or Kafka does not answer; see the [Runbook](/docs/operations/runbook) |
 
 Source: `internal/adapters/inbound/http/server.go` (`NewRouter`),
@@ -50,26 +50,25 @@ Source: `internal/adapters/inbound/http/server.go` (`NewRouter`),
 
 ## Conventions in the contract
 
-- **`:` actions.** Lifecycle and category actions are `POST` routes with a custom
-  verb after the id (`{catalogItemId}:publish`). The body of `:revise` is the whole
-  editable content; `:publish`, `:retire` and `:discard` take no body. One
-  `:revise` route serves both states: the state picks `ReviseDraft` or
+- **Noun routes.** Lifecycle actions are `POST` transition resources named by a plural noun
+  after the id (`{catalogItemId}/publications`); a draft discard is `DELETE .../draft`; a
+  category move or rename is `PUT .../parent` or `PUT .../name`. The body of `/revisions` is the whole
+  editable content; `/publications`, `/retirements` and `DELETE .../draft` take no body. One
+  `/revisions` route serves both states: the state picks `ReviseDraft` or
   `ReviseContent` ([Use cases](/docs/ddd/use-cases)).
-- **`Idempotency-Key`.** Required on every `POST` (1 to 128 characters; `400
-  idempotency-key-required` when absent). Remembered 24 hours per route and key in
+- **`Idempotency-Key`.** Required on every `POST` (1 to 128 printable ASCII characters; `400
+  idempotency-key-required` when absent, `400 idempotency-key-invalid` when malformed). Global: remembered 24 hours by key alone, compared by method + path + body hash, in
   `idempotency_keys`: the same key with the same request replays the stored
-  response, marked with the header `Idempotent-Replayed: true`; the same key with a
-  different request is `422 idempotency-key-reused`. Every response below 500 is
+  response, marked with the header `Idempotency-Replayed: true`; the same key with a
+  different request is `409 idempotency-key-reused`. Every response below 500 is
   stored, 4xx included, so retry a failed request with a fresh key. Implemented by
   `internal/adapters/inbound/http/idempotency.go`.
-- **Paging.** `GET /product-contents` takes `limit` (1 to 500, default 100) and
-  `after`, the last `catalogItemId` of the previous page; the response `next`
-  carries it and is absent on the last page. Ordered by `catalogItemId`; every
+- **Paging.** `GET /product-contents` takes `limit` (1 to 500, default 100) and an opaque `cursor`; the response is `{items, nextCursor}` and `nextCursor` is absent on the last page. Any other query parameter is `400 unknown-query-parameter`. Ordered by `catalogItemId`; every
   state is listed.
 - **Revisions and versions.** `revision` is the content shape number (1 at
   creation, plus one per revise); `publishedRevision` is the last published one (0
   = never). The tree carries one `version`, which grows with every category write
-  and every `POST /categories:publish`.
+  and every `POST /category-tree-publications`.
 - **Errors** are RFC 9457 `application/problem+json` with
   `type = /problems/<slug>` (a relative reference). Slugs: `malformed-request`,
   `not-found`, `content-retired`, `category-in-use` (declared, never raised),

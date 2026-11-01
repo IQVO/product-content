@@ -39,7 +39,7 @@ sequenceDiagram
     UC-->>ID: 201 content
     ID->>PG: insert idempotency_keys
     ID-->>CM: 201 content
-    CM->>H: POST product-contents/id:publish
+    CM->>H: POST product-contents/id/publications
     H->>UC: PublishContent.Execute
     UC->>PG: begin, select product_contents and catalog_item_view
     UC->>D: Publish(item status, tree)
@@ -78,7 +78,7 @@ sequenceDiagram
     participant UC as usecases PublishContent
     participant D as domain content
     participant PG as Postgres
-    CM->>H: POST product-contents/id:publish
+    CM->>H: POST product-contents/id/publications
     H->>UC: Execute(id)
     UC->>PG: begin, select product_contents
     alt no row
@@ -120,7 +120,7 @@ sequenceDiagram
     participant UC as usecases MoveCategory
     participant T as domain category Tree
     participant PG as Postgres
-    CM->>H: POST categories/id:move with parentId
+    CM->>H: PUT categories/id/parent with parentId
     H->>UC: Execute(categoryId, parentId)
     UC->>PG: begin, select category_trees
     PG-->>UC: tree at version v
@@ -247,9 +247,9 @@ sequenceDiagram
         end
         ID-->>CM: response
     else record with the same request hash
-        ID-->>CM: stored response with Idempotent-Replayed true
+        ID-->>CM: stored response with Idempotency-Replayed true
     else record with another request hash
-        ID-->>CM: 422 idempotency-key-reused
+        ID-->>CM: 409 idempotency-key-reused
     end
 ```
 

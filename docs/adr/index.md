@@ -16,3 +16,4 @@ sidebar_position: 0
 | [0004](./0004-cloudevents-envelope-and-type-catalogue.md) | CloudEvents envelope and type catalogue | Accepted (2026-10-25) |
 | [0005](./0005-fleet-observability-standard.md) | Adopt the fleet observability standard (logs, metrics, traces) | Accepted (2026-10-26) |
 | [0006](./0006-a2a-inbound-adapter.md) | A2A inbound adapter | Accepted (2026-10-30) |
+| [0007](./0007-adopt-fleet-rest-api-guideline.md) | Adopt the fleet REST API guideline | Accepted (2026-11-01) |

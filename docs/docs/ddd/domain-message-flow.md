@@ -29,9 +29,9 @@ sequenceDiagram
     CM->>PC: cmd: CreateProductContent<br/>POST /product-contents
     Note over PC: item known and live in catalog_item_view,<br/>state DRAFT, revision 1
     PC-->>CM: reply 201 DRAFT
-    CM->>PC: cmd: ReviseContent<br/>POST catalogItemId:revise
+    CM->>PC: cmd: ReviseContent<br/>POST catalogItemId/revisions
     PC-->>CM: reply 200 DRAFT, revision 2
-    CM->>PC: cmd: PublishContent<br/>POST catalogItemId:publish
+    CM->>PC: cmd: PublishContent<br/>POST catalogItemId/publications
     Note over PC: publish gate, state PUBLISHED,<br/>publishedRevision 2
     PC->>K: evt: productcontent.ProductContentPublished
     PC-->>CM: reply 200 PUBLISHED
@@ -54,7 +54,7 @@ sequenceDiagram
     autonumber
     actor CM as Content manager
     participant PC as product-content
-    CM->>PC: cmd: PublishContent<br/>POST catalogItemId:publish
+    CM->>PC: cmd: PublishContent<br/>POST catalogItemId/publications
     alt content RETIRED
         PC-->>CM: reply 409 content-retired
     else item unknown to catalog_item_view
@@ -72,7 +72,7 @@ sequenceDiagram
 Source: `internal/domain/content/commands.go` (`Publish`, order of the checks),
 `internal/adapters/inbound/http/errors.go`.
 
-The manager corrects the DRAFT with `:revise` and publishes again. A publish of the
+The manager corrects the DRAFT with `/revisions` and publishes again. A publish of the
 revision that is already live is not a rejection: it answers 200 and changes nothing.
 
 ## 3. Edit the tree
@@ -87,10 +87,10 @@ sequenceDiagram
     CM->>PC: cmd: CreateCategory<br/>POST /categories
     PC->>K: evt: categorytree.CategoryTreePublished, version 1
     PC-->>CM: reply 201 category
-    CM->>PC: cmd: MoveCategory<br/>POST categories/categoryId:move
+    CM->>PC: cmd: MoveCategory<br/>PUT categories/categoryId/parent
     PC->>K: evt: categorytree.CategoryTreePublished, version 2
     PC-->>CM: reply 200 category
-    CM->>PC: cmd: PublishCategoryTree<br/>POST /categories:publish
+    CM->>PC: cmd: PublishCategoryTree<br/>POST /category-tree-publications
     Note over PC: tree unchanged,<br/>version bumped
     PC->>K: evt: categorytree.CategoryTreePublished, version 3
     K->>PD: evt: categorytree.CategoryTreePublished

@@ -148,8 +148,8 @@ kcat -C -b localhost:9092 -t retailnetwork.product-content.events -o beginning -
 ```
 
 Replaying a call with the same `Idempotency-Key` returns the first response
-with the header `Idempotent-Replayed`; the same key with a different body is
-`422 idempotency-key-reused`.
+with the header `Idempotency-Replayed`; the same key with a different body is
+`409 idempotency-key-reused`.
 
 ### 4. Retire
 
@@ -158,7 +158,7 @@ curl -s -X POST 'http://localhost:8080/product-contents/item-1:retire' -H 'Idemp
 ```
 
 `retire` is for PUBLISHED content (it raises `ProductContentRetired`);
-`:discard` retires a DRAFT without an event. RETIRED is terminal.
+`DELETE .../draft` retires a DRAFT without an event. RETIRED is terminal.
 
 ## Where to go next
 

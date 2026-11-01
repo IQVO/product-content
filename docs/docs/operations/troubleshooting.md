@@ -42,7 +42,7 @@ All errors are RFC 9457 `application/problem+json` (`internal/adapters/inbound/h
 | Status and `type` | Cause | Fix |
 | --- | --- | --- |
 | `400 idempotency-key-required` | a POST without `Idempotency-Key`, or one longer than 128 characters | send a key of 1 to 128 characters, unique per logical request |
-| `422 idempotency-key-reused` | the same key and route with a different method, path, query or body | use a new key for a different request; the same key replays the stored first response (header `Idempotent-Replayed: true`) for 24 h. A 5xx is never stored |
+| `409 idempotency-key-reused` | the same key and route with a different method, path, query or body | use a new key for a different request; the same key replays the stored first response (header `Idempotency-Replayed: true`) for 24 h. A 5xx is never stored |
 | `400 malformed-request` | invalid JSON, an unknown field, a wrong type, a body over 64 KiB, or a NUL character in path, query or body | fix the request |
 | `422 unknown-catalog-item` | no `CatalogItemCreated` for this id has been consumed yet (the local `catalog_item_view` does not know it) | check the item exists in the network, that the consumer is running (`consumer running` log, group lag) and that the event reached `retailnetwork.offer-availability.events`; retry once it is applied |
 | `422 item-discontinued` | `CatalogItemDiscontinued` was consumed for the item | none: content is neither created nor published for a discontinued item |
@@ -51,7 +51,7 @@ All errors are RFC 9457 `application/problem+json` (`internal/adapters/inbound/h
 | `422 too-many-bullets` / `too-many-attributes` / `too-many-media` | more than 10 bullets, 50 attributes or 12 media | trim the body |
 | `422 validation-failed` | a field rule: text must be trimmed and non-blank (description up to 4000, bullet up to 300, attribute name 100 / value 300 / unit 20, alt text up to 200 characters), media URL absolute `http(s)` up to 2048, unique valid `mediaId`, `role` `PRIMARY` or `GALLERY`, ids of 1 to 64 characters from `A-Z a-z 0-9 . _ : -` | the `detail` names the field |
 | `409 concurrent-update` | optimistic version mismatch (two writers), or a second create for the same item | re-read and retry |
-| `409 illegal-transition` | for example `:retire` on a DRAFT (use `:discard`), `:discard` on PUBLISHED (use `:retire`) | check `state` with `GET /product-contents/{id}` |
+| `409 illegal-transition` | for example `/retirements` on a DRAFT (use `DELETE .../draft`), `DELETE .../draft` on PUBLISHED (use `/retirements`) | check `state` with `GET /product-contents/{id}` |
 | `409 content-retired` | RETIRED is terminal; no revise or publish | create nothing new for that item; there is no un-retire |
 | `404 not-found` | no content or category with that id | check the id |
 | `422 category-cycle`, `max-depth` (tree at most 4 levels), `duplicate-sibling-name` (case-insensitive), `unknown-category` (unknown parent) | category rules | adjust the tree command |
@@ -62,7 +62,7 @@ All errors are RFC 9457 `application/problem+json` (`internal/adapters/inbound/h
 | Symptom | Cause | Check | Fix |
 | --- | --- | --- | --- |
 | `publish` returns 200 but nothing appears on `retailnetwork.product-content.events` | the relay cannot reach the broker, or the row hit the attempt cap | `SELECT id, event_type, attempts, last_error FROM outbox_events WHERE published_at IS NULL ORDER BY id;` and ERROR `outbox relay pass failed` | restore the broker; rows retry every `OUTBOX_RELAY_INTERVAL`. Capped rows: fix the cause, then `UPDATE outbox_events SET attempts = 0 WHERE id = <id>;` (ERROR `outbox relay: row reached the attempt cap ...` names `outbox_id`) |
-| A `:publish` of unchanged PUBLISHED content raises no event | by design: the current revision is already published | `revision` equals `publishedRevision` | `:revise` first, or `POST /categories:publish` to re-send the tree |
+| A `/publications` of unchanged PUBLISHED content raises no event | by design: the current revision is already published | `revision` equals `publishedRevision` | `/revisions` first, or `POST /category-tree-publications` to re-send the tree |
 | Downstream sees the same event twice | at-least-once delivery after a relay retry | same CloudEvents `id` | de-duplicate on `id`; the producer republishes the stored id |
 | `unknown-catalog-item` persists although the item exists | the consumer is not running under the expected group, or the group has no committed offsets and is replaying | `consumer running` log: `group_id`, `topic`; `kafka-consumer-groups --describe` | a fresh group starts from the first offset and replays the topic; give it time. Never derive the group from the pod name |
 | Messages in `retailnetwork.offer-availability.events.dlq` | `type` known but `catalogItemId` invalid (poison, dead-lettered at once), or a transient failure persisted for 5 attempts | headers `x-dlq-error`, `x-dlq-source-*`; WARN `dead-lettering an event that can never be applied` | fix the producer, re-drive per [Runbook](/docs/operations/runbook#re-driving-the-dlq) |
