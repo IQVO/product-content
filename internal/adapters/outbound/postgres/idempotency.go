@@ -31,6 +31,13 @@ const claimAttempts = 3
 // httpServerError is the first status that is never stored (a 5xx).
 const httpServerError = 500
 
+// httpClientError is the first status that may be recorded over an aborted
+// handler transaction (a 4xx); below it the answer claims writes that are gone.
+const httpClientError = 400
+
+// handlerSavepoint names the savepoint around the wrapped handler.
+const handlerSavepoint = "handler_run"
+
 // claimSQL inserts the key as a placeholder inside the request's transaction. A
 // concurrent claimant of the same key blocks on the unique index until this
 // transaction ends: it then finds the committed answer (no row is affected) or,
@@ -80,11 +87,17 @@ func (s *IdempotencyStore) attempt(ctx context.Context, key, requestHash string,
 		_ = tx.Rollback(context.WithoutCancel(ctx))
 		return s.replay(ctx, key)
 	}
+	if _, err := tx.Exec(ctx, "SAVEPOINT "+handlerSavepoint); err != nil {
+		return idempotency.Record{}, false, false, fmt.Errorf("savepoint idempotent request: %w", err)
+	}
 	if rec, err = fn(pgtx.With(ctx, tx)); err != nil {
 		return idempotency.Record{}, false, false, err
 	}
 	if rec.Status >= httpServerError {
 		return rec, false, false, nil // rolled back by the defer: a 5xx is never stored
+	}
+	if err := healAbortedHandler(ctx, tx, rec.Status); err != nil {
+		return idempotency.Record{}, false, false, err
 	}
 	body := rec.Body
 	if body == nil {
@@ -98,6 +111,33 @@ func (s *IdempotencyStore) attempt(ctx context.Context, key, requestHash string,
 	}
 	rec.RequestHash, rec.CreatedAt = requestHash, at.UTC()
 	return rec, false, false, nil
+}
+
+// healAbortedHandler releases the handler's savepoint.
+//
+// The handler runs behind SAVEPOINT handler_run. A mapped domain conflict (a
+// lost race on a unique index, 23505 answered as a truthful 409) fails a
+// statement on the server and leaves the shared transaction ABORTED, so the
+// outcome UPDATE that follows would fail with 25P02 and the client would see a
+// 500 instead of the 409. Releasing the savepoint exposes that: the release
+// fails, ROLLBACK TO SAVEPOINT discards only the handler's partial writes
+// (the key claim made before the savepoint survives) and heals the
+// transaction, and the 4xx outcome is recorded and committed like any other.
+// A success answer (status below 400) behind a failed release is a lie: its
+// writes are gone, so it must neither be returned nor cached; the error fails
+// the request, the deferred rollback frees the key and the same key retries.
+func healAbortedHandler(ctx context.Context, tx pgx.Tx, status int) error {
+	relErr := func() error { _, err := tx.Exec(ctx, "RELEASE SAVEPOINT "+handlerSavepoint); return err }()
+	if relErr == nil {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, "ROLLBACK TO SAVEPOINT "+handlerSavepoint); err != nil {
+		return fmt.Errorf("heal idempotent request: %w", err)
+	}
+	if status < httpClientError {
+		return fmt.Errorf("handler answered %d over an aborted transaction: %w", status, relErr)
+	}
+	return nil
 }
 
 // replay reads the committed record that made the claim fail; it asks for a new
