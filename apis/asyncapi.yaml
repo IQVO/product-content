@@ -42,7 +42,8 @@ channels:
   productContentEvents:
     address: retailnetwork.product-content.events
     title: product-content integration topic
-    description: This service's integration topic. Written by the outbox relay; key = subject (the catalogItemId or the categoryTreeId). Every message carries the CloudEvents content-type header.
+    description: >-
+      This service's integration topic. Written by the outbox relay; key = subject (the catalogItemId or the categoryTreeId; Hash balancer, so one aggregate stays on one partition). Every message carries the Kafka header `content-type: application/cloudevents+json; charset=UTF-8` and, when the writing request or consumer span is sampled, the W3C `traceparent`/`tracestate` headers stored with the outbox row.
     messages:
       ProductContentPublished:
         $ref: '#/components/messages/ProductContentPublished'
@@ -53,7 +54,8 @@ channels:
   offerAvailabilityEvents:
     address: retailnetwork.offer-availability.events
     title: offer-availability integration topic (consumed)
-    description: Produced by offer-availability (Conformist); consumed by product-content with its own consumer group (see ADR 0003). Idempotent on the CloudEvents id (inbox), dispatch on the full type, tolerant decoding, dead-letter on poison messages.
+    description: >-
+      Produced by offer-availability (Conformist); consumed by product-content with its own consumer group (see ADR 0003). Consumer group = the value of the mandatory environment variable OFFER_AVAILABILITY_CONSUMER_GROUP. Idempotent on the CloudEvents id (inbox row claimed in the same transaction as the CatalogItemView update), dispatch on the full type, tolerant decoding. A message that is not a valid CloudEvents 1.0 event, or whose type is not one of the two below, is logged and skipped (offset committed, no dead letter). A `data` that cannot be decoded, or a `catalogItemId` that is not a valid id (1 to 64 characters from A-Z a-z 0-9 . _ : -, starting with a letter or a digit), can never be applied: the message is copied at once to the dead-letter topic `retailnetwork.offer-availability.events.dlq` (same key and value, plus the headers `x-dlq-source-topic`, `x-dlq-source-partition`, `x-dlq-source-offset`, `x-dlq-error` and `x-dlq-failed-at`) and the offset is committed. Any other handler failure is retried with backoff and dead-lettered after 5 attempts.
     messages:
       CatalogItemCreated:
         $ref: '#/components/messages/ConsumedCatalogItemCreated'
@@ -418,7 +420,8 @@ components:
           $ref: '#/components/schemas/CategoryTreePublishedData'
     CatalogItemCreatedEvent:
       type: object
-      required: [specversion, id, source, type, subject, time, datacontenttype, dataschema, data]
+      description: What the consumer relies on. It validates the CloudEvents 1.0 required attributes (specversion, id, source, type) and dispatches on the full type; subject, time (used as the CatalogItemView instant, the consumer clock when absent), datacontenttype and dataschema are not required or checked.
+      required: [specversion, id, source, type, data]
       properties:
         specversion:
           type: string
@@ -427,7 +430,7 @@ components:
           type: string
         source:
           type: string
-          const: /retailnetwork/offer-availability
+          description: As produced, /retailnetwork/offer-availability; not checked.
         type:
           type: string
           const: com.retailnetwork.commerce.offer-availability.catalogitem.CatalogItemCreated
@@ -437,19 +440,23 @@ components:
           $ref: '#/components/schemas/Instant'
         datacontenttype:
           type: string
-          const: application/json
+          description: As produced, application/json; not checked.
         dataschema:
           type: string
-          const: urn:retailnetwork:offer-availability:events:CatalogItemCreated:v1
+          description: As produced, urn:retailnetwork:offer-availability:events:CatalogItemCreated:v1; not checked.
         data:
           type: object
           required: [catalogItemId]
           properties:
             catalogItemId:
               type: string
+              minLength: 1
+              maxLength: 64
+              pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]*$'
     CatalogItemDiscontinuedEvent:
       type: object
-      required: [specversion, id, source, type, subject, time, datacontenttype, dataschema, data]
+      description: What the consumer relies on. It validates the CloudEvents 1.0 required attributes (specversion, id, source, type) and dispatches on the full type; subject, time (used as the CatalogItemView instant, the consumer clock when absent), datacontenttype and dataschema are not required or checked.
+      required: [specversion, id, source, type, data]
       properties:
         specversion:
           type: string
@@ -458,7 +465,7 @@ components:
           type: string
         source:
           type: string
-          const: /retailnetwork/offer-availability
+          description: As produced, /retailnetwork/offer-availability; not checked.
         type:
           type: string
           const: com.retailnetwork.commerce.offer-availability.catalogitem.CatalogItemDiscontinued
@@ -468,13 +475,16 @@ components:
           $ref: '#/components/schemas/Instant'
         datacontenttype:
           type: string
-          const: application/json
+          description: As produced, application/json; not checked.
         dataschema:
           type: string
-          const: urn:retailnetwork:offer-availability:events:CatalogItemDiscontinued:v1
+          description: As produced, urn:retailnetwork:offer-availability:events:CatalogItemDiscontinued:v1; not checked.
         data:
           type: object
           required: [catalogItemId]
           properties:
             catalogItemId:
               type: string
+              minLength: 1
+              maxLength: 64
+              pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]*$'
