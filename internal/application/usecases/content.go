@@ -41,7 +41,7 @@ func (u CreateProductContent) Execute(ctx context.Context, in ContentInput) (vie
 	})
 }
 
-// ReviseContent is the command behind POST /product-contents/{id}:revise:
+// ReviseContent is the command behind POST /product-contents/{id}/revisions:
 // ReviseDraft for a DRAFT, ReviseContent for PUBLISHED content, chosen by the
 // state (ADR 0002, A4).
 type ReviseContent struct{ Deps }
@@ -73,7 +73,7 @@ func (u ReviseContent) Execute(ctx context.Context, in ContentInput) (views.Cont
 }
 
 // PublishContent is the command PublishContent
-// (POST /product-contents/{id}:publish).
+// (POST /product-contents/{id}/publications).
 type PublishContent struct{ Deps }
 
 // Execute publishes the current revision. Content with nothing new to publish
@@ -116,7 +116,7 @@ func (u PublishContent) execute(ctx context.Context, id content.ID) (_ views.Con
 }
 
 // RetireContent is the command RetireContent
-// (POST /product-contents/{id}:retire).
+// (POST /product-contents/{id}/retirements).
 type RetireContent struct{ Deps }
 
 // Execute retires PUBLISHED content and publishes ProductContentRetired.
@@ -135,7 +135,7 @@ func (u RetireContent) Execute(ctx context.Context, id content.ID) (views.Conten
 }
 
 // DiscardDraft is the command DiscardDraft
-// (POST /product-contents/{id}:discard). It raises no event.
+// (DELETE /product-contents/{id}/draft). It raises no event.
 type DiscardDraft struct{ Deps }
 
 // Execute retires a DRAFT with the reason DISCARDED.

@@ -78,7 +78,7 @@ flowchart LR
     C3["RenameCategory<br/>POST rename"]:::command
     G2["CategoryTree<br/>the live tree"]:::aggregate
     P2["Structural rules<br/>no cycle, depth 4,<br/>unique sibling names"]:::policy
-    C4["PublishCategoryTree<br/>POST /categories:publish"]:::command
+    C4["PublishCategoryTree<br/>POST /category-tree-publications"]:::command
     E2["CategoryTreePublished<br/>whole tree, version bumped"]:::event
     PD["product-discovery<br/>category view"]:::external
 
@@ -149,11 +149,11 @@ the code by [ADR 0002](/docs/adr/0002-product-content-assumptions) and
 
 | # | Hotspot | How the code closes it |
 | --- | --- | --- |
-| H1 | A DRAFT could not be edited or discarded. | `ReviseDraft` (`DRAFT` to `DRAFT`, new revision) and `DiscardDraft` (`DRAFT` to `RETIRED`, `DISCARDED`, no event, route `:discard`). One `:revise` route serves both revisions: the state picks the command (A4, A5, A6). |
+| H1 | A DRAFT could not be edited or discarded. | `ReviseDraft` (`DRAFT` to `DRAFT`, new revision) and `DiscardDraft` (`DRAFT` to `RETIRED`, `DISCARDED`, no event, route `DELETE .../draft`). One `/revisions` route serves both revisions: the state picks the command (A4, A5, A6). |
 | H2 | Re-publication after a revision had no transition. | `PUBLISHED` to `PUBLISHED` through `Publish`, carrying the new `revision`. Publishing a revision that is already live is a silent no-op (A1). |
-| H3 | `ErrCategoryInUse` was mapped to `:move`. | No remove command exists by design. `ErrCategoryInUse` stays declared and mapped to `category-in-use` (409) but nothing raises it (A8). |
+| H3 | `ErrCategoryInUse` was mapped to `PUT .../parent`. | No remove command exists by design. `ErrCategoryInUse` stays declared and mapped to `category-in-use` (409) but nothing raises it (A8). |
 | H4 | No limits on bullets, attributes and media. | `ErrTooManyBullets`, `ErrTooManyAttributes`, `ErrTooManyMedia` at 10, 50 and 12, checked before the fields (A11). |
 | H5 | The tree had a DRAFT/PUBLISHED reading. | One live tree, no draft state: every command publishes a new version (A6, A7). |
-| H6 | `PublishCategoryTree` had no route. | `POST /categories:publish`. |
+| H6 | `PublishCategoryTree` had no route. | `POST /category-tree-publications`. |
 | H7 | A DRAFT of a discontinued item stayed behind. | `RetireOnDiscontinue` retires DRAFT content too, silently (ADR 0003). |
 | H8 | Content could be created for a discontinued item. | `ErrItemDiscontinued` on create and publish, from `catalog_item_view` (A10). |

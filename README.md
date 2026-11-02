@@ -178,22 +178,22 @@ telemetry, nothing else); the trace continues across Kafka in the
 Contract: [`apis/openapi.yaml`](apis/openapi.yaml). No authentication. Errors
 are RFC 9457 problem details (`application/problem+json`). Every
 state-changing request takes an `Idempotency-Key` header; a retry with the
-same key replays the first response.
+same key replays the first response (`Idempotency-Replayed: true`), the same key on a different request is `409`; lists are `{items,nextCursor}` pages (`limit`, `cursor`).
 
 | Method | Path | Purpose |
 |---|---|---|
 | `POST` | `/product-contents` | Create a content draft |
 | `GET` | `/product-contents` | List contents |
 | `GET` | `/product-contents/{catalogItemId}` | Get one item's content |
-| `POST` | `/product-contents/{catalogItemId}:revise` | Revise the draft (description, bullets, attributes, media) |
-| `POST` | `/product-contents/{catalogItemId}:publish` | Publish the draft |
-| `POST` | `/product-contents/{catalogItemId}:retire` | Retire the content |
-| `POST` | `/product-contents/{catalogItemId}:discard` | Discard the draft |
+| `POST` | `/product-contents/{catalogItemId}/revisions` | Revise the draft (description, bullets, attributes, media) |
+| `POST` | `/product-contents/{catalogItemId}/publications` | Publish the draft |
+| `POST` | `/product-contents/{catalogItemId}/retirements` | Retire the content |
+| `DELETE` | `/product-contents/{catalogItemId}/draft` | Discard the draft |
 | `POST` | `/categories` | Create a category |
 | `GET` | `/categories` | Get the category tree |
-| `POST` | `/categories:publish` | Publish the category tree (bumps the tree version) |
-| `POST` | `/categories/{categoryId}:move` | Move a category |
-| `POST` | `/categories/{categoryId}:rename` | Rename a category |
+| `POST` | `/category-tree-publications` | Publish the category tree (bumps the tree version) |
+| `PUT` | `/categories/{categoryId}/parent` | Move a category |
+| `PUT` | `/categories/{categoryId}/name` | Rename a category |
 | `GET` | `/healthz` | Liveness |
 | `GET` | `/readyz` | Readiness (Postgres ping + Kafka metadata) |
 

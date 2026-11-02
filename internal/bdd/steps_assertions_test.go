@@ -34,7 +34,7 @@ func registerEvents(sc *godog.ScenarioContext, w *world) {
 func (w *world) apiJSON() (map[string]any, error) {
 	var m map[string]any
 	if err := json.Unmarshal([]byte(w.apiBody), &m); err != nil {
-		return nil, fmt.Errorf("answer is not a JSON object: %q (%v)", w.apiBody, err)
+		return nil, fmt.Errorf("answer is not a JSON object: %q (%w)", w.apiBody, err)
 	}
 	return m, nil
 }
@@ -44,8 +44,8 @@ func registerAssertions(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the API answers (\d+) with problem "([^"]*)"$`, w.apiAnswersProblem)
 	sc.Step(`^the API response field "([^"]*)" is "([^"]*)"$`, w.apiFieldIs)
 	sc.Step(`^the response is marked replayed$`, func() error {
-		if got := w.apiHeader.Get("Idempotent-Replayed"); got != "true" {
-			return fmt.Errorf("Idempotent-Replayed = %q, want true", got)
+		if got := w.apiHeader.Get("Idempotency-Replayed"); got != "true" {
+			return fmt.Errorf("Idempotency-Replayed = %q, want true", got)
 		}
 		return nil
 	})

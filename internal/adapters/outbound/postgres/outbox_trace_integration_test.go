@@ -42,7 +42,7 @@ func TestOutboxAppendStoresTheActiveTraceparent(t *testing.T) {
 	repo := postgres.NewOutboxRepo(pool, stubEncoder{n: new(int)})
 	event := content.ProductContentRetired{}
 
-	ctx, span := sdktrace.NewTracerProvider().Tracer("test").Start(context.Background(), "POST /product-contents/{catalogItemId}:retire")
+	ctx, span := sdktrace.NewTracerProvider().Tracer("test").Start(context.Background(), "POST /product-contents/{catalogItemId}/retirements")
 	defer span.End()
 	if err := repo.Append(ctx, event); err != nil {
 		t.Fatal(err)
