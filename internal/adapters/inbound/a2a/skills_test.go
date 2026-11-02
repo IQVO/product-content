@@ -450,7 +450,7 @@ func TestWireUseCaseErrorsAreAnsweredInBandWithTheRESTClass(t *testing.T) {
 				skillListCategories:    {},
 			} {
 				env, text := w.skill(t, skill, args)
-				if skill == skillListCategories && tc.err == ports.ErrNotFound {
+				if skill == skillListCategories && errors.Is(tc.err, ports.ErrNotFound) {
 					// The tree before its first category is the empty tree, as on REST.
 					if env.Problem != nil || env.Data == nil || env.Data.CategoryTree == nil {
 						t.Fatalf("%s: a missing tree is the empty tree, got %+v", skill, env)
@@ -477,7 +477,7 @@ func TestCardIsServedAndDialable(t *testing.T) {
 	t.Cleanup(srv.Close)
 	mux.Handle(a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(Card(Config{AgentURL: srv.URL + "/", Version: "test"})))
 
-	res, err := http.Get(srv.URL + a2asrv.WellKnownAgentCardPath) //nolint:gosec,noctx // test server URL
+	res, err := http.Get(srv.URL + a2asrv.WellKnownAgentCardPath) // test server URL
 	if err != nil || res.StatusCode != http.StatusOK {
 		t.Fatalf("card fetch = %v / %v", res, err)
 	}
