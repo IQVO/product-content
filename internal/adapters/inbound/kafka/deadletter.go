@@ -2,9 +2,13 @@
 // retried a bounded number of times with capped backoff (consumeLoop's
 // policy), and only once that bound is exhausted is the message published to
 // "<topic>.dlq" with x-dlq-* headers, instead of blocking the partition
-// forever. A deterministic problem (not a CloudEvents 1.0 message, unknown
-// type, malformed payload, invalid values) never reaches this path: the
-// consumer's HandleMessage returns nil for those and the loop commits past
+// forever. A payload that can never be applied (a handled type whose `data`
+// does not decode, or names an invalid catalogItemId) is dead-lettered at once,
+// without retrying, because the consumers set DeadLetterInvalid (ADR 0002,
+// ADR 0003): HandleMessage returns an errPoison-wrapped error and the loop
+// publishes it here and commits past it. Only a message that is not a
+// CloudEvents 1.0 message, or has a type with no handler, never reaches this
+// path: HandleMessage logs and returns nil for those and the loop commits past
 // them.
 package kafka
 
