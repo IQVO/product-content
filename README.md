@@ -14,18 +14,22 @@ This project is a domain-driven design study. It is not associated with, endorse
 
 ## Documentation
 
-This repo has no docs site of its own. The context's design lives in
-[warehouse-docs](https://iqvo.github.io/warehouse-docs/storefront/) — `storefront/model/model.yaml` there is the single source of truth.
-
-Page map:
+The documentation site is published at
+**[iqvo.github.io/product-content](https://iqvo.github.io/product-content/)** and
+is built from [`docs/`](docs/) (Docusaurus; `cd docs && npm ci && npm start` serves it
+locally). The design source is the storefront pack in
+[warehouse-docs](https://iqvo.github.io/warehouse-docs/storefront/contexts/product-content/);
+the pages here follow the code on `develop`.
 
 | Area | Pages |
 |---|---|
-| Context pack | [Product Content context page](https://iqvo.github.io/warehouse-docs/storefront/contexts/product-content) and its 13-page ddd-crew pack (business context, ubiquitous language, core-domain chart, bounded-context canvas, context map, aggregate canvas, domain events, message flow, eventstorming, use cases, class/sequence/ER diagrams) |
-| Strategic design | [Storefront strategic design](https://iqvo.github.io/warehouse-docs/storefront/strategic-design/) — subdomain classification, context map, CloudEvents event standard, model gap register |
-| API reference | [REST reference generated from `apis/openapi.yaml`](https://iqvo.github.io/warehouse-docs/storefront/api-reference/rest/product-content/) |
-| Decisions | [Storefront ADR index](https://iqvo.github.io/warehouse-docs/storefront/adr/), this repo's [ADR index](docs/adr/index.md) |
-| In this repo | [`docs/adr/`](docs/adr/), [`docs/operations/runbook.md`](docs/operations/runbook.md), [`docs/before-first-release.md`](docs/before-first-release.md) |
+| Overview | [Introduction](https://iqvo.github.io/product-content/docs/overview/introduction), [Architecture](https://iqvo.github.io/product-content/docs/overview/architecture), [Quickstart](https://iqvo.github.io/product-content/docs/overview/quickstart) |
+| Operations | [Configuration](https://iqvo.github.io/product-content/docs/operations/configuration), [Runbook](https://iqvo.github.io/product-content/docs/operations/runbook), [Observability](https://iqvo.github.io/product-content/docs/operations/observability), [Troubleshooting](https://iqvo.github.io/product-content/docs/operations/troubleshooting), [Before the first release](https://iqvo.github.io/product-content/docs/operations/before-first-release) (sources: [`docs/docs/operations/`](docs/docs/operations/)) |
+| Development | [Testing](https://iqvo.github.io/product-content/docs/development/testing) |
+| Domain-driven design | [Use cases](https://iqvo.github.io/product-content/docs/ddd/use-cases), [Subdomain classification](https://iqvo.github.io/product-content/docs/ddd/subdomain-classification), [Ubiquitous language](https://iqvo.github.io/product-content/docs/ddd/ubiquitous-language), and the ddd-crew pack: [index](https://iqvo.github.io/product-content/docs/ddd/ddd-artifacts), [core domain chart](https://iqvo.github.io/product-content/docs/ddd/core-domain-chart), [bounded context canvas](https://iqvo.github.io/product-content/docs/ddd/bounded-context-canvas), [context map](https://iqvo.github.io/product-content/docs/ddd/context-map), [aggregate design canvas](https://iqvo.github.io/product-content/docs/ddd/aggregate-design-canvas), [domain message flow](https://iqvo.github.io/product-content/docs/ddd/domain-message-flow), [EventStorming](https://iqvo.github.io/product-content/docs/ddd/eventstorming), [class diagrams](https://iqvo.github.io/product-content/docs/ddd/class-diagram), [entity-relationship](https://iqvo.github.io/product-content/docs/ddd/entity-relationship), [sequence diagrams](https://iqvo.github.io/product-content/docs/ddd/sequence-diagrams), [domain events](https://iqvo.github.io/product-content/docs/ddd/domain-events) |
+| API reference | [Overview (REST, events, A2A)](https://iqvo.github.io/product-content/docs/api-reference), [event catalogue](https://iqvo.github.io/product-content/docs/api-reference/events), and the REST reference generated from [`apis/openapi.yaml`](apis/openapi.yaml) |
+| Ecosystem | [Integration](https://iqvo.github.io/product-content/docs/ecosystem/integration) |
+| Decisions | [ADR index](https://iqvo.github.io/product-content/docs/adr) (sources: [`docs/adr/`](docs/adr/), [index](docs/adr/index.md)) |
 
 ## Architecture
 
