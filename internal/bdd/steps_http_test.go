@@ -103,7 +103,7 @@ func registerHTTP(sc *godog.ScenarioContext, w *world) {
 		}
 		m, err := w.apiJSON()
 		if err != nil || w.apiStatus != 201 {
-			return fmt.Errorf("create category: %d %s (%v)", w.apiStatus, w.apiBody, err)
+			return fmt.Errorf("create category: %d %s (%w)", w.apiStatus, w.apiBody, err)
 		}
 		w.categories[name] = fmt.Sprint(m["categoryId"])
 		return nil

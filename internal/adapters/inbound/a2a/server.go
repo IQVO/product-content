@@ -30,6 +30,13 @@ import (
 	"github.com/IQVO/product-content/internal/application/usecases"
 )
 
+const (
+	// agentName is this agent's identity: the Agent Card name and its skill tags.
+	agentName = "product-content"
+	// modeJSON is the structured content mode every skill speaks.
+	modeJSON = "application/json"
+)
+
 // Config carries the deployment-specific identity of this agent: the absolute
 // URL clients use to reach its JSON-RPC endpoint (advertised on the Agent
 // Card) and the card version. It is supplied by the composition root from
@@ -57,7 +64,7 @@ type Deps struct {
 // that decision is ever reversed.
 func Card(cfg Config) *a2a.AgentCard {
 	return &a2a.AgentCard{
-		Name:        "product-content",
+		Name:        agentName,
 		Description: "Product Content agent for the storefront domain: answers what a product page needs for one catalogue item (description, bullets, attributes, media and primary category, with its draft/published/retired state and revisions) and what the category tree looks like (every category with its parent and path, at the current tree version). Read-only: it never creates, revises, publishes or retires content and never changes the category tree.",
 		Version:     cfg.Version,
 		Provider: &a2a.AgentProvider{
@@ -67,16 +74,16 @@ func Card(cfg Config) *a2a.AgentCard {
 		SupportedInterfaces: []*a2a.AgentInterface{
 			a2a.NewAgentInterface(cfg.AgentURL, a2a.TransportProtocolJSONRPC),
 		},
-		DefaultInputModes:  []string{"application/json", "text/plain"},
-		DefaultOutputModes: []string{"application/json", "text/plain"},
+		DefaultInputModes:  []string{modeJSON, "text/plain"},
+		DefaultOutputModes: []string{modeJSON, "text/plain"},
 		Capabilities:       a2a.AgentCapabilities{Streaming: false},
 		Skills: []a2a.AgentSkill{
 			{
 				ID:          skillGetProductContent,
 				Name:        "Product content of a catalogue item",
 				Description: "Reads the product content of one catalogue item exactly as GET /product-contents/{catalogItemId} returns it: state (DRAFT, PUBLISHED or RETIRED), description, bullets, attributes, media, primary category, revision and published revision. Answers a not-found problem when the item has no content. Changes nothing.",
-				Tags:        []string{"product-content", "catalogue", "read"},
-				InputModes:  []string{"application/json"},
+				Tags:        []string{agentName, "catalogue", "read"},
+				InputModes:  []string{modeJSON},
 				Examples: []string{
 					`{"skill":"get_product_content","arguments":{"catalogItemId":"item-123"}}`,
 				},
@@ -85,8 +92,8 @@ func Card(cfg Config) *a2a.AgentCard {
 				ID:          skillListCategories,
 				Name:        "The category tree",
 				Description: "Reads the whole live category tree exactly as GET /categories returns it: the tree version and every category with its id, parent id, name and path from the root. Before the first category the tree is version 0 and empty. Takes no arguments. Changes nothing.",
-				Tags:        []string{"product-content", "categories", "read"},
-				InputModes:  []string{"application/json"},
+				Tags:        []string{agentName, "categories", "read"},
+				InputModes:  []string{modeJSON},
 				Examples: []string{
 					`{"skill":"list_categories","arguments":{}}`,
 				},
