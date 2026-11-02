@@ -1,1 +1,1 @@
-{"title":"Body","body":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["name"],"properties":{"name":{"type":"string","minLength":1,"maxLength":100}},"title":"RenameCategoryRequest"}}}}}
+{"title":"Body","body":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["name"],"properties":{"name":{"type":"string","minLength":1,"maxLength":100,"description":"Trimmed text without a slash or control characters (422 validation-failed otherwise)."}},"title":"RenameCategoryRequest"}}}}}
