@@ -95,11 +95,6 @@ type contentResponse struct {
 	RetiredAt         *time.Time     `json:"retiredAt,omitempty"`
 }
 
-type contentListResponse struct {
-	Items []contentResponse `json:"items"`
-	Next  string            `json:"next,omitempty"`
-}
-
 type categoryResponse struct {
 	CategoryID string `json:"categoryId"`
 	ParentID   string `json:"parentId,omitempty"`

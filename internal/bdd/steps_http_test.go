@@ -93,6 +93,10 @@ func registerHTTP(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the API posts to "([^"]*)" without an Idempotency-Key and body:$`, func(path string, body *godog.DocString) error {
 		return w.call("POST", path, "", body.Content)
 	})
+	sc.Step(`^the API deletes "([^"]*)"$`, func(path string) error { return w.call("DELETE", path, "", "") })
+	sc.Step(`^the API puts to "([^"]*)" the body:$`, func(path string, body *godog.DocString) error {
+		return w.call("PUT", path, "", body.Content)
+	})
 	sc.Step(`^a category "([^"]*)" exists$`, func(name string) error {
 		if err := w.call("POST", "/categories", "cat-"+name, fmt.Sprintf(`{"name":%q}`, name)); err != nil {
 			return err

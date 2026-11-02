@@ -104,14 +104,14 @@ func TestRouterRequestLogLevelFollowsTheStatus(t *testing.T) {
 	e := newEnvLogged(t, slog.New(slog.NewJSONHandler(&buf, nil)))
 
 	e.do("GET", "/product-contents", "", "")         // 200 -> INFO
-	e.do("GET", "/product-contents?limit=x", "", "") // 422 -> WARN
+	e.do("GET", "/product-contents?limit=x", "", "") // 400 -> WARN
 
 	levels := map[float64]any{}
 	for _, l := range logLines(t, &buf) {
 		levels[l["status"].(float64)] = l["level"]
 	}
-	if levels[200] != "INFO" || levels[422] != "WARN" {
-		t.Errorf("levels by status = %v, want 200 INFO and 422 WARN", levels)
+	if levels[200] != "INFO" || levels[400] != "WARN" {
+		t.Errorf("levels by status = %v, want 200 INFO and 400 WARN", levels)
 	}
 }
 

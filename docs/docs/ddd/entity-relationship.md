@@ -91,7 +91,7 @@ only constraints are the keys, the `CHECK`s below and `outbox_events.event_id UN
 | `category_trees` | `TreeRepository.Save` | One row, `tree_id = main`, the whole tree as `jsonb` under its `version`. Absent before the first category. |
 | `catalog_item_view` | the consumer, `CatalogItemRepository` | Event-fed local copy: `ACTIVE` or `DISCONTINUED` (terminal). |
 | `processed_events` | the consumer, `Inbox.Claim` | The inbox: one row per consumed CloudEvents `id`. Claimed in the same transaction as the effect. |
-| `idempotency_keys` | the HTTP middleware, `IdempotencyStore` | Stored response per `(route, key)`; records older than 24 h are treated as absent. Index `idempotency_keys_created_idx` on `created_at`. |
+| `idempotency_keys` | the HTTP middleware, `IdempotencyStore` | Stored response per key; records older than 24 h are treated as absent. Index `idempotency_keys_created_idx` on `created_at`. |
 | `outbox_events` | `OutboxRepo.Append`, drained by the relay | Already-encoded CloudEvents bytes, topic, Kafka key, headers. Partial index `outbox_events_unpublished_idx` on `id` where `published_at IS NULL`. `attempts` and `last_error` record relay failures. |
 
 ## Constraints worth knowing

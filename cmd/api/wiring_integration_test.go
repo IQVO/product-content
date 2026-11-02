@@ -42,7 +42,7 @@ func TestRealWiringPublishesContentOfAConsumedItem(t *testing.T) {
 		created = s.call(t, "POST", "/product-contents", nextKey(), body)
 		return created.status == 201
 	}, func() string { return created.body })
-	if pub := s.call(t, "POST", "/product-contents/sku-e2e:publish", "k-pub", ""); pub.status != 200 || pub.field(t, "state") != "PUBLISHED" {
+	if pub := s.call(t, "POST", "/product-contents/sku-e2e/publications", "k-pub", ""); pub.status != 200 || pub.field(t, "state") != "PUBLISHED" {
 		t.Fatalf("publish: %d %s", pub.status, pub.body)
 	}
 	msgs := kafkatest.ReadKeyed(t, topicEvents, "sku-e2e", 1, 60*time.Second)

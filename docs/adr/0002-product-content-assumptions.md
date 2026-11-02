@@ -52,7 +52,7 @@ decisions are silent. Each assumption is also reported to the orchestrator as a
 - **A2 Integers.** Every bounded integer fits a Postgres `integer`.
 - **A3 Time.** Instants are UTC, truncated to the microsecond Postgres stores. The
   CloudEvents `time` of an event is the aggregate's `updatedAt` after the change.
-- **A4 One revise route.** `POST /product-contents/{catalogItemId}:revise` is
+- **A4 One revise route.** `POST /product-contents/{catalogItemId}/revisions` is
   ReviseDraft for a DRAFT and ReviseContent for PUBLISHED content; the state picks
   the command. The body replaces the whole editable content. PUBLISHED content must
   stay complete (`incomplete-content` otherwise), so it is always publishable. A
@@ -62,8 +62,8 @@ decisions are silent. Each assumption is also reported to the orchestrator as a
   on the REST read, not on the event (the event keeps the model's data list).
   RetireContent of a DRAFT or of RETIRED content is 409 `illegal-transition`; a DRAFT
   is discarded instead.
-- **A6 New routes.** `POST /product-contents/{catalogItemId}:discard` (DiscardDraft)
-  and `POST /categories:publish` (PublishCategoryTree, decision 1). PublishCategoryTree
+- **A6 New routes.** `DELETE /product-contents/{catalogItemId}/draft` (DiscardDraft)
+  and `POST /category-tree-publications` (PublishCategoryTree, decision 1). PublishCategoryTree
   changes no category: it publishes the live tree again under a new version, the way
   to re-send it to a consumer.
 - **A7 The tree.** It is created by the first CreateCategory. Before that,
@@ -90,13 +90,13 @@ decisions are silent. Each assumption is also reported to the orchestrator as a
   A DRAFT may be incomplete (no description, no media, no category); completeness is
   the publish gate.
 - **A12 Listing.** `GET /product-contents` lists every state ordered by
-  `catalogItemId`; `after` is the last `catalogItemId` of the previous page and `next`
+  `catalogItemId`; the opaque `cursor` encodes the last `catalogItemId` of the previous page (ADR 0007) and `nextCursor`
   is that cursor, absent on the last page; the default page is 100 and the limit is
   1 to 500.
 - **A13 Idempotency.** Every write takes an `Idempotency-Key` (1 to 128 characters,
-  remembered 24 hours per route and key). A repeated key with the same request body
-  replays the stored response (marked `Idempotent-Replayed: true`); with a different
-  body it is 422 `idempotency-key-reused`. Every response below 500 is stored, client
+  remembered 24 hours by key (global since ADR 0007)). A repeated key with the same request body
+  replays the stored response (marked `Idempotency-Replayed: true`); with a different
+  body it is 409 `idempotency-key-reused`. Every response below 500 is stored, client
   errors included, so a client retrying after a 4xx needs a fresh key; a 5xx is not
   stored.
 - **A14 Ids.** A `catalogItemId` is an opaque id of 1 to 64 characters from

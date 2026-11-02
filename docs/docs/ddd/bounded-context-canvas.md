@@ -99,8 +99,8 @@ item master does not have. The context:
 
 | Collaborator | Message | Type | Channel | Relationship |
 | --- | --- | --- | --- | --- |
-| Content manager (human or tool) | `CreateProductContent`, `ReviseContent` (state picks `ReviseDraft` or `ReviseContent`), `PublishContent`, `RetireContent`, `DiscardDraft` | Command | REST `POST /product-contents`, `POST /product-contents/{catalogItemId}:revise`, `:publish`, `:retire`, `:discard` | UI |
-| Content manager | `CreateCategory`, `MoveCategory`, `RenameCategory`, `PublishCategoryTree` | Command | REST `POST /categories`, `POST /categories/{categoryId}:move`, `:rename`, `POST /categories:publish` | UI |
+| Content manager (human or tool) | `CreateProductContent`, `ReviseContent` (state picks `ReviseDraft` or `ReviseContent`), `PublishContent`, `RetireContent`, `DiscardDraft` | Command | REST `POST /product-contents`, `POST /product-contents/{catalogItemId}/revisions`, `/publications`, `/retirements`, `DELETE .../draft` | UI |
+| Content manager | `CreateCategory`, `MoveCategory`, `RenameCategory`, `PublishCategoryTree` | Command | REST `POST /categories`, `PUT /categories/{categoryId}/parent`, `PUT .../name`, `POST /category-tree-publications` | UI |
 | Content manager | `GetProductContent`, `ListProductContents`, `ListCategories` | Query | REST `GET /product-contents/{catalogItemId}`, `GET /product-contents`, `GET /categories` | UI |
 | `product-discovery` | `ListProductContents`, `ListCategories` | Query | REST `GET /product-contents` (bootstrap, paged), `GET /categories` | Customer/Supplier (we are the Supplier) |
 | Agents | `GetProductContent`, `ListCategories` | Query | A2A skills `get_product_content`, `list_categories` | Open host for delegation, read-only |

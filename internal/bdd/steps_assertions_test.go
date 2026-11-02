@@ -44,8 +44,8 @@ func registerAssertions(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the API answers (\d+) with problem "([^"]*)"$`, w.apiAnswersProblem)
 	sc.Step(`^the API response field "([^"]*)" is "([^"]*)"$`, w.apiFieldIs)
 	sc.Step(`^the response is marked replayed$`, func() error {
-		if got := w.apiHeader.Get("Idempotent-Replayed"); got != "true" {
-			return fmt.Errorf("Idempotent-Replayed = %q, want true", got)
+		if got := w.apiHeader.Get("Idempotency-Replayed"); got != "true" {
+			return fmt.Errorf("Idempotency-Replayed = %q, want true", got)
 		}
 		return nil
 	})
