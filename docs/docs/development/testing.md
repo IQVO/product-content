@@ -189,11 +189,14 @@ make arch-test
 | `integration` | `go test -tags=integration ./... -race -count=1` | always |
 | `mutation-fast` | gremlins v0.6.0 on each package under `internal/domain/*/` | always; blocking |
 | `mutation` | `gremlins unleash ./internal/domain --workers 1 --timeout-coefficient 30`; harness:red issue on failure | schedule and dispatch only |
+| `drift` | `deadcode -test ./...`, `go mod tidy -diff` and `scripts/coverage-quality.py` (high-coverage functions with a surviving mutant) written to the job summary; `harness:red` issue on a scheduled failure | schedule and dispatch only |
 | `api-lint` | Spectral on `apis/openapi.yaml` and `apis/asyncapi.yaml`, `--fail-severity=warn` | always |
 | `vuln` | `govulncheck ./...` | always |
+| `docs-api-drift` | `npm ci`, `npm run clean-api-docs` and `npm run gen-api-docs` in `docs/`, then fails when `docs/docs/api-reference/rest` differs from what is committed | always |
 | `helm-lint` | `ct lint` and `helm lint` with each `charts/product-content/ci/*.yaml` values file | pull requests only |
 | `chart-tests` | every `charts/product-content/tests/*.sh` and `test_*.py`; a printed `SKIP` fails the job | always |
 | `arch-test` | `go test ./internal/architecture/... -v` | always |
+| `trivy-scan` | builds the image locally (not pushed), uploads a Trivy SARIF report (CRITICAL/HIGH/MEDIUM) and fails on a CRITICAL or HIGH OS/library finding that has a fix | pull requests only |
 | `docker-publish` | build and push `ghcr.io/iqvo/product-content`, cosign signature, SBOM attestation; needs the jobs above | push to `main` only |
 | `release` | tags the next patch version, retags the image, pushes the Helm chart, creates the GitHub release | push to `main`, after `docker-publish` |
 
