@@ -1,0 +1,133 @@
+{{- if .Values.mcp.enabled }}
+{{- include "product-content.requireDatabase" . -}}
+{{- include "product-content.requireMcpHttpPort" . -}}
+{{- include "product-content.requireCleanMcpExtraEnv" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "product-content.mcpFullname" . }}
+  labels:
+    {{- include "product-content.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp
+spec:
+  replicas: {{ .Values.mcp.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "product-content.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: mcp
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "product-content.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: mcp
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "product-content.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: mcp
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: {{ include "product-content.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/app/mcp"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.mcp.service.targetPort }}
+              protocol: TCP
+          # The env contract is cmd/mcp/main.go's header comment. This workload
+          # deliberately does NOT mount the api ConfigMap (envFrom): the server
+          # is read-only, so it has no Kafka, no outbox relay and no consumer,
+          # and KAFKA_BROKERS / OFFER_AVAILABILITY_CONSUMER_GROUP / OUTBOX_*
+          # must not reach it (tests/render_test.sh asserts their absence).
+          env:
+            - name: MCP_ADDR
+              value: {{ .Values.mcp.httpAddr | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+            - name: SERVICE_VERSION
+              value: {{ .Values.image.tag | default .Chart.AppVersion | quote }}
+            {{- if .Values.otel.enabled }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.otel.endpoint | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: {{ printf "%s-mcp" .Values.otel.serviceName | quote }}
+            {{- end }}
+            # DATABASE_URL always comes from a Secret: the server reads the same
+            # Postgres as cmd/api (read side only).
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "product-content.databaseSecretName" . }}
+                  key: {{ .Values.database.existingSecretKey }}
+            {{- if .Values.database.migrationsExistingSecretKey }}
+            # cmd/mcp applies the embedded migrations on start like cmd/api
+            # (idempotent), so it needs the same direct-connection split.
+            # `optional: true` so a Secret without the key still starts the pod.
+            - name: MIGRATIONS_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "product-content.databaseSecretName" . }}
+                  key: {{ .Values.database.migrationsExistingSecretKey }}
+                  optional: true
+            {{- end }}
+            {{- range .Values.mcp.extraEnv }}
+            - {{ toYaml . | nindent 14 | trim }}
+            {{- end }}
+          # GET /healthz is served by cmd/mcp, so the probes have a cheap target
+          # (the binary exposes no /readyz: it has no drain gate). The Postgres
+          # dial and the migrations at boot run inside a bounded retry, so the
+          # startup probe allows ~60s.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.mcp.resources | nindent 12 }}
+          # The server writes nothing to disk and the root filesystem is
+          # read-only; /tmp is a small scratch volume for the runtime.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

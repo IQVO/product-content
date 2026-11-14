@@ -71,6 +71,48 @@ target (the same rule as requireHttpPort for the api).
 {{- end -}}
 
 {{/*
+Fully qualified name of the MCP server Deployment/Service/HTTPRoute
+(<release>-mcp, ADR 0008), cut like the a2a name so the suffix always survives
+the 63-character limit and the name can never collide with the api's or a2a's.
+*/}}
+{{- define "product-content.mcpFullname" -}}
+{{- printf "%s-mcp" (include "product-content.fullname" . | trunc 59 | trimSuffix "-") }}
+{{- end }}
+
+{{/*
+The port of mcp.httpAddr is the container port the probes and the mcp Service
+target (the same rule as requireHttpPort for the api).
+*/}}
+{{- define "product-content.requireMcpHttpPort" -}}
+{{- $port := trimPrefix ":" (regexFind ":[0-9]+$" (toString .Values.mcp.httpAddr)) -}}
+{{- if ne $port (toString .Values.mcp.service.targetPort) -}}
+{{- fail (printf "mcp.httpAddr is %q but mcp.service.targetPort is %v: the container port, the probes and the Service must agree." .Values.mcp.httpAddr .Values.mcp.service.targetPort) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+mcp.extraEnv may not bring back what the chart owns or what a read-only server
+never has: no *_MODE variable, no Kafka / relay / consumer variable (cmd/mcp
+never dials Kafka, never relays and never consumes), and none of the variables
+the chart renders itself (the same variable is never set twice).
+*/}}
+{{- define "product-content.requireCleanMcpExtraEnv" -}}
+{{- $owned := list "MCP_ADDR" "LOG_LEVEL" "SERVICE_VERSION" "DATABASE_URL" "MIGRATIONS_DATABASE_URL" "OTEL_EXPORTER_OTLP_ENDPOINT" "OTEL_SERVICE_NAME" -}}
+{{- range .Values.mcp.extraEnv -}}
+{{- $name := toString .name -}}
+{{- if hasSuffix "_MODE" $name -}}
+{{- fail (printf "mcp.extraEnv sets %s: *_MODE variables do not exist here - product-content runs on real Postgres only, with no permissive, off or in-memory mode." $name) -}}
+{{- end -}}
+{{- if or (hasPrefix "KAFKA_" $name) (hasPrefix "OUTBOX_" $name) (hasSuffix "_CONSUMER_GROUP" $name) (eq $name "EVENT_PUBLISHER") (eq $name "SHUTDOWN_DRAIN_DELAY") (eq $name "HTTP_ADDR") -}}
+{{- fail (printf "mcp.extraEnv sets %s: the MCP server is read-only and never dials Kafka, relays the outbox or consumes events; that variable belongs to the api." $name) -}}
+{{- end -}}
+{{- if has $name $owned -}}
+{{- fail (printf "mcp.extraEnv sets %s, which the chart renders from its own values: use that value instead." $name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Create the name of the service account to use
 */}}
 {{- define "product-content.serviceAccountName" -}}

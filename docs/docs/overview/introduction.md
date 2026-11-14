@@ -22,16 +22,20 @@ product page, so the browser reaches the storefront edge and never this
 context ([Integration](/docs/ecosystem/integration)).
 
 :::info What runs on develop
-Two binaries: `cmd/api` (REST, the transactional outbox relay and the
-offer-availability consumer in one process) and `cmd/a2a` (a read-only
+Three binaries: `cmd/api` (REST, the transactional outbox relay and the
+offer-availability consumer in one process), `cmd/mcp` (a read-only Model
+Context Protocol server over the same Postgres,
+[ADR 0008](/docs/adr/0008-read-only-mcp-server)) and `cmd/a2a` (a read-only
 Agent2Agent agent over the same Postgres,
-[ADR 0006](/docs/adr/0006-a2a-inbound-adapter)). Both run on real Postgres;
+[ADR 0006](/docs/adr/0006-a2a-inbound-adapter)). All three run on real Postgres;
 `cmd/api` also needs real Kafka. There is no in-memory mode, and
 `DATABASE_URL`, `KAFKA_BROKERS` and `OFFER_AVAILABILITY_CONSUMER_GROUP` are
 mandatory for `cmd/api` ([Configuration](/docs/operations/configuration)).
-Packaged as a `Dockerfile` that builds both binaries and the Helm chart
-`charts/product-content` (the `api` Deployment always, the A2A Deployment when
-`a2a.enabled=true`). There is no `cmd/mcp`: this context has no MCP server.
+Packaged as a `Dockerfile` that builds every `cmd/*` binary and the Helm chart
+`charts/product-content` (the `api` Deployment always, the MCP Deployment when
+`mcp.enabled=true`, the A2A Deployment when `a2a.enabled=true`). The MCP server
+has two read tools, `get_product_content` and `list_categories`, one resource and
+one prompt ([MCP tools](/docs/mcp/tools)).
 :::
 
 ## What the context owns
@@ -80,7 +84,7 @@ Packaged as a `Dockerfile` that builds both binaries and the Helm chart
    one publishes the whole tree under a new version, and
    `POST /category-tree-publications` re-sends the tree on demand.
 5. Read content (paged, for a projection rebuild) and the category tree over
-   REST, or the same two reads as A2A skills (`get_product_content`,
+   REST, or the same two reads as A2A skills or MCP tools (`get_product_content`,
    `list_categories`).
 6. Publish `ProductContentPublished`, `ProductContentRetired` and
    `CategoryTreePublished` on `retailnetwork.product-content.events` through

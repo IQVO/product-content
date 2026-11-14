@@ -6,7 +6,7 @@ Storefront (e-commerce) domain of the retail-network organisation, bounded conte
 
 Enriches the network's catalogue item with everything a product page needs and the item master does not have: description, bullets, attributes, media and the category tree. The title stays the item master's; media upload is out of scope (URLs to static assets only).
 
-Status: built (domain, application, Postgres, Kafka, REST, A2A, BDD). This repository is part of the storefront domain: it consumes the retail network's Open Host Service routes and its published `retailnetwork.*` events; it never calls an in-org or restricted network route.
+Status: built (domain, application, Postgres, Kafka, REST, MCP, A2A, BDD). This repository is part of the storefront domain: it consumes the retail network's Open Host Service routes and its published `retailnetwork.*` events; it never calls an in-org or restricted network route.
 
 ## Disclaimer
 
@@ -27,8 +27,8 @@ the pages here follow the code on `develop`.
 | Operations | [Configuration](https://iqvo.github.io/product-content/docs/operations/configuration), [Runbook](https://iqvo.github.io/product-content/docs/operations/runbook), [Observability](https://iqvo.github.io/product-content/docs/operations/observability), [Troubleshooting](https://iqvo.github.io/product-content/docs/operations/troubleshooting), [Before the first release](https://iqvo.github.io/product-content/docs/operations/before-first-release) (sources: [`docs/docs/operations/`](docs/docs/operations/)) |
 | Development | [Testing](https://iqvo.github.io/product-content/docs/development/testing) |
 | Domain-driven design | [Use cases](https://iqvo.github.io/product-content/docs/ddd/use-cases), [Subdomain classification](https://iqvo.github.io/product-content/docs/ddd/subdomain-classification), [Ubiquitous language](https://iqvo.github.io/product-content/docs/ddd/ubiquitous-language), and the ddd-crew pack: [index](https://iqvo.github.io/product-content/docs/ddd/ddd-artifacts), [core domain chart](https://iqvo.github.io/product-content/docs/ddd/core-domain-chart), [bounded context canvas](https://iqvo.github.io/product-content/docs/ddd/bounded-context-canvas), [context map](https://iqvo.github.io/product-content/docs/ddd/context-map), [aggregate design canvas](https://iqvo.github.io/product-content/docs/ddd/aggregate-design-canvas), [domain message flow](https://iqvo.github.io/product-content/docs/ddd/domain-message-flow), [EventStorming](https://iqvo.github.io/product-content/docs/ddd/eventstorming), [class diagrams](https://iqvo.github.io/product-content/docs/ddd/class-diagram), [entity-relationship](https://iqvo.github.io/product-content/docs/ddd/entity-relationship), [sequence diagrams](https://iqvo.github.io/product-content/docs/ddd/sequence-diagrams), [domain events](https://iqvo.github.io/product-content/docs/ddd/domain-events) |
-| API reference | [Overview (REST, events, A2A)](https://iqvo.github.io/product-content/docs/api-reference), [event catalogue](https://iqvo.github.io/product-content/docs/api-reference/events), and the REST reference generated from [`apis/openapi.yaml`](apis/openapi.yaml) |
-| Ecosystem | [Integration](https://iqvo.github.io/product-content/docs/ecosystem/integration) |
+| API reference | [Overview (REST, events, MCP, A2A)](https://iqvo.github.io/product-content/docs/api-reference), [event catalogue](https://iqvo.github.io/product-content/docs/api-reference/events), and the REST reference generated from [`apis/openapi.yaml`](apis/openapi.yaml) |
+| Ecosystem | [Integration](https://iqvo.github.io/product-content/docs/ecosystem/integration), [MCP tools](https://iqvo.github.io/product-content/docs/mcp/tools) (`get_product_content`, `list_categories`) |
 | Decisions | [ADR index](https://iqvo.github.io/product-content/docs/adr) (sources: [`docs/adr/`](docs/adr/), [index](docs/adr/index.md)) |
 
 ## Architecture
@@ -38,6 +38,7 @@ Hexagonal / ports & adapters; dependencies point **inward only**.
 ```
 cmd/api/                    composition root: REST API, outbox relay, the offer-availability
                             consumer and the RetireOnDiscontinue policy
+cmd/mcp/                    read-only MCP server over the same read use cases (ADR 0008)
 cmd/a2a/                    read-only A2A agent over the same read use cases (ADR 0006)
 internal/
   domain/                   pure business logic: content (the ProductContent aggregate),
@@ -50,7 +51,7 @@ internal/
     outbox/                 transactional outbox
     views/                  read views
   adapters/
-    inbound/                http (chi), kafka (the consumer), a2a, requestlog
+    inbound/                http (chi), kafka (the consumer), mcp, a2a, requestlog
     outbound/               postgres, kafka, outbox relay, telemetry, clock, ids,
                             memory (test doubles), repocontract
     kafka/cloudevents/      the CloudEvents 1.0 Kafka writer
@@ -66,7 +67,7 @@ enforced as an executable test, not a convention:
 arch-go) fails the build if the domain ever imports an outer layer or an
 adapter reaches sideways into a sibling; the same package adds fitness tests
 for the event catalogue vs `apis/asyncapi.yaml`, the A2A adapter's read-only
-rule, Kafka writer acks/topics/DLQ shutdown, the outbox relay cap, and
+rule, the MCP adapter's authority, surface and optional-input rules, Kafka writer acks/topics/DLQ shutdown, the outbox relay cap, and
 no-Go-files-at-root.
 
 ## Domain events
@@ -149,6 +150,12 @@ answers a metadata request; `/healthz` is liveness only.
 | `SERVICE_VERSION` | `dev` | `service.version` |
 | `ENVIRONMENT` | `local` | `deployment.environment.name` |
 
+`cmd/mcp` reads `MCP_ADDR` (default `:8090`), `DATABASE_URL` (**required**,
+same store as the API), `MIGRATIONS_DATABASE_URL` (default `DATABASE_URL`),
+`LOG_LEVEL` and the shared telemetry variables (`OTEL_SERVICE_NAME` defaults to
+`product-content-mcp`, plus `SERVICE_VERSION` and `ENVIRONMENT`). It never
+writes, so it needs no Kafka (no `KAFKA_BROKERS`, consumer group or relay).
+
 `cmd/a2a` reads `DATABASE_URL` (**required**, same store as the API),
 `A2A_AGENT_URL` (**required**: the absolute `http(s)` URL advertised on the
 card; the chart defaults it to the in-cluster Service DNS),
@@ -161,7 +168,8 @@ defaults to `product-content-a2a`). It never writes, so it needs no Kafka (no
 
 Logs, metrics and traces follow the fleet standard ([ADR
 0005](docs/adr/0005-fleet-observability-standard.md)): JSON logs on stdout
-carry `trace_id`/`span_id` and a `request_id`; `cmd/api` exports OTLP/gRPC to
+carry `trace_id`/`span_id` and a `request_id`; `cmd/api` (and `cmd/mcp`, as
+`product-content-mcp`) exports OTLP/gRPC to
 the Collector (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`,
 `SERVICE_VERSION`, `ENVIRONMENT`; export never blocks, so no Collector costs
 telemetry, nothing else); the trace continues across Kafka in the
@@ -201,8 +209,8 @@ same key replays the first response (`Idempotency-Replayed: true`), the same key
 
 [`charts/product-content`](charts/product-content) — one always-on component:
 the `api` Deployment (REST, relay, consumer and policy in one process); the
-read-only A2A agent is an optional extra component (`a2a.enabled=true`,
-default off). The chart refuses to render without `database.*`,
+read-only MCP server (`mcp.enabled=true`) and the read-only A2A agent
+(`a2a.enabled=true`) are optional extra components, both default off. The chart refuses to render without `database.*`,
 `kafka.brokers` and `config.offerAvailabilityConsumerGroup` (named in the
 failure). `DATABASE_URL` always comes from a Secret.
 
@@ -217,6 +225,39 @@ Telemetry is the `otel` values block (`enabled: true` by default, safe where
 no Collector is deployed). Chart invariants are asserted by
 `charts/product-content/tests/` (`render_test.sh`, `test_service_selectors.py`),
 run in CI by the `helm-lint` (`ct lint`) and `chart-tests` jobs.
+
+### Running the MCP server in Kubernetes
+
+The MCP server ([ADR 0008](docs/adr/0008-read-only-mcp-server.md)) is another
+binary in the same image, `/app/mcp`, and the Helm chart deploys it as a
+separate Deployment + ClusterIP Service (`<release>-mcp`, port 8090) when
+`mcp.enabled=true` (default `false`; route at `/api/mcp/product-content`,
+rewritten to `/mcp`, via `mcp.route.*`). It reads the same `DATABASE_URL`
+Secret as the API, applies the embedded migrations on start (idempotent) and
+serves MCP over stateless Streamable HTTP (`/mcp` and `/`, probes on
+`/healthz`). The surface is **read-only** and every tool is authority L1
+(`com.warehouse/authority` in the tool metadata); no write use case is wired,
+so the binary never writes an outbox row, never starts the relay or the
+consumer and never dials Kafka. There is NO auth of any kind (fleet-wide
+revert 2026-09-11). Full reference:
+[MCP tools](https://iqvo.github.io/product-content/docs/mcp/tools).
+
+- Tools: `get_product_content` `{"catalogItemId": "..."}`
+  (`GET /product-contents/{catalogItemId}`) and `list_categories` `{}`
+  (`GET /categories`). Content writes and the paged `GET /product-contents`
+  are not tools.
+- Resource: `warehouse://product-content/contents/{catalogItemId}`; prompt:
+  `review_product_content`.
+- Layout: `cmd/mcp/` (composition root, read side only),
+  `internal/adapters/inbound/mcp/`, `charts/product-content/templates/mcp-*.yaml`.
+
+```sh
+helm upgrade --install product-content ./charts/product-content \
+  --set database.existingSecret=product-content-db \
+  --set kafka.brokers=kafka:9092 \
+  --set config.offerAvailabilityConsumerGroup=product-content-offer-availability \
+  --set mcp.enabled=true
+```
 
 ### Running the A2A agent in Kubernetes
 
@@ -289,10 +330,11 @@ publish) run only on pushes to `main`, after every other job is green.
 
 ## Architecture Decision Records
 
-[`docs/adr/`](docs/adr/) — [index](docs/adr/index.md); 7 ADRs (0001 bounded
+[`docs/adr/`](docs/adr/) — [index](docs/adr/index.md); 8 ADRs (0001 bounded
 context, 0002 assumptions, 0003 consumed contracts and local read model, 0004
 CloudEvents envelope and type catalogue, 0005 fleet observability standard,
-0006 A2A inbound adapter, 0007 fleet REST API guideline).
+0006 A2A inbound adapter, 0007 fleet REST API guideline, 0008 read-only MCP
+server).
 
 ## License
 

@@ -31,17 +31,17 @@ flowchart LR
     PC["product-content"]
     PD["product-discovery<br/>storefront"]
     CM["content managers<br/>REST clients"]
-    AG["agents<br/>A2A"]
+    AG["agents<br/>A2A, MCP"]
     OA -- "events: CatalogItemCreated, CatalogItemDiscontinued (built + verified)" --> PC
     PC -- "events: ProductContentPublished, ProductContentRetired, CategoryTreePublished (built + verified)" --> PD
     PD -. "REST reads for a projection rebuild (built + verified)" .-> PC
     CM -- "REST commands and reads" --> PC
-    AG -- "A2A: get_product_content, list_categories" --> PC
+    AG -- "A2A skills and MCP tools: get_product_content, list_categories" --> PC
 ```
 
 Source: `internal/adapters/inbound/kafka/offer_availability.go`,
 `internal/adapters/outbound/kafka/encoder.go`, `apis/asyncapi.yaml`,
-`apis/openapi.yaml`, `internal/adapters/inbound/a2a/skills.go`, and the other
+`apis/openapi.yaml`, `internal/adapters/inbound/a2a/skills.go`, `internal/adapters/inbound/mcp/tools.go`, and the other
 side's `apis/asyncapi.yaml` and `cmd/rebuild/main.go` in `product-discovery` on
 `origin/develop`. Solid arrows are events or requests that flow in the arrow's
 direction; the dotted arrow is a read in the opposite direction of the data it
@@ -100,6 +100,7 @@ projection lag and not a missing item.
 | product-discovery | same | same | `com.retailnetwork.storefront.product-content.categorytree.CategoryTreePublished` (key = `main`) | **Built + verified.** Carries the whole tree; its `CategoryView` is replaced when `version` is above the last applied one. |
 | product-discovery | REST | `GET /product-contents` (paged), `GET /categories` | `cmd/rebuild` in `product-discovery` reads them with `PRODUCT_CONTENT_URL` to rebuild its projection, never on a user request. | **Built + verified** on both sides. Not on the shopper path. |
 | content managers, tools | REST | `apis/openapi.yaml` | create, revise, publish, retire, discard, categories | **Built.** Unauthenticated, reached through Kong at `/api/product-content` (`stripPath: true`) per `helm-values/product-content.yaml` in `warehouse-infra`. |
+| agents | MCP, Streamable HTTP (stateless) | `cmd/mcp` on `:8090`, `/mcp` and `/` | tools `get_product_content`, `list_categories` (both authority L1), resource `warehouse://product-content/contents/{catalogItemId}`, prompt `review_product_content` | **Built** ([MCP tools](/docs/mcp/tools)). The chart exposes it at `/api/mcp/product-content` (rewritten to `/mcp`) when `mcp.enabled=true` and `mcp.route.enabled=true`; both default off, and switching them on is a `warehouse-infra` step that this repository does not take (not evidenced as done). |
 | agents | A2A JSON-RPC 2.0 | `cmd/a2a` on `:8093`, `/` and `/a2a` | skills `get_product_content`, `list_categories` | **Built.** The chart exposes it at `/api/a2a/product-content` when `a2a.enabled=true`, which the `warehouse-infra` values turn on. |
 
 Every event is written to `outbox_events` in the same transaction as the aggregate
@@ -140,9 +141,10 @@ writer sets `AllowAutoTopicCreation`; `/readyz` waits for a broker, not for a to
 - **No edge** to any network context other than `offer-availability`
   (`delivery-promise`, `customer-ordering`, `order-sourcing`, `shipping-and-tracking`
   and the rest).
-- **No MCP server** (`cmd/mcp` does not exist) and **no outbound A2A client**: the
-  A2A agent is delegated to, it never delegates (`TestA2AAgentIsReadOnlyWithNoOutboundClient`).
-- **No authentication** on REST or A2A, fleet-wide; none is documented here.
+- **No outbound MCP or A2A client**: the MCP server and the A2A agent are called, they
+  never call (`TestA2AAgentIsReadOnlyWithNoOutboundClient`; `cmd/mcp` wires no client).
+  Both are read-only: every write stays REST.
+- **No authentication** on REST, MCP or A2A, fleet-wide; none is documented here.
 - **No Anti-Corruption Layer and no Shared Kernel**: `catalogItemId` and
   `categoryId` are values copied from messages, not shared code.
 

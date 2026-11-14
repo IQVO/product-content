@@ -21,26 +21,26 @@ the exporters connect lazily, so a missing Collector costs telemetry, never
 availability (exporter errors are logged at DEBUG as `opentelemetry error`).
 A flush of at most 5 s runs last on shutdown.
 
-| Variable | Default | Both binaries? |
+| Variable | Default | All binaries? |
 | --- | --- | --- |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` (bare `host:port` or URL; a bare value gets `http://`) | yes |
-| `OTEL_SERVICE_NAME` | `product-content` (`cmd/api`), `product-content-a2a` (`cmd/a2a`) | yes, different defaults |
+| `OTEL_SERVICE_NAME` | `product-content` (`cmd/api`), `product-content-mcp` (`cmd/mcp`), `product-content-a2a` (`cmd/a2a`) | yes, different defaults |
 | `SERVICE_VERSION` | `dev` | yes |
 | `ENVIRONMENT` | `local` (`deployment.environment.name`) | yes |
 | `LOG_LEVEL` | `info` | yes |
 
 The chart renders `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_SERVICE_NAME` from
 `otel.endpoint` (`otel-collector.observability.svc.cluster.local:4317`) and
-`otel.serviceName` when `otel.enabled` is true (the default); the A2A pod gets
-`<serviceName>-a2a`. See [Configuration](/docs/operations/configuration).
+`otel.serviceName` when `otel.enabled` is true (the default); the MCP pod gets
+`<serviceName>-mcp` and the A2A pod `<serviceName>-a2a`. See [Configuration](/docs/operations/configuration).
 
 ## Metrics
 
 | Instrument | Type | Unit | Attributes | Emitted by | Source |
 | --- | --- | --- | --- | --- | --- |
 | `content.products.published` (Prometheus `content_products_published_total`) | counter (Int64) | `{publication}` | `outcome` = `published` \| `rejected`; `reason` (on `rejected` only) = a problem slug: `not-found`, `content-retired`, `unknown-catalog-item`, `item-discontinued`, `incomplete-content`, `unknown-category`, `concurrent-update`, `illegal-transition`, `validation-failed`, `internal-error` | `cmd/api` | `internal/adapters/outbound/telemetry/content_metrics.go`, `internal/application/usecases/content_metrics.go` |
-| `http.server.request.duration` | histogram | `s` | route (chi pattern), method (otelchi metric defaults) | both binaries | `otelchimetric.NewServerRequestDuration` in `internal/adapters/inbound/http/server.go`, `cmd/a2a/router.go` |
-| Go runtime metrics (`go.goroutine.count`, `go.memory.used`, GC and others) | various | various | various | both binaries | `go.opentelemetry.io/contrib/instrumentation/runtime`, started in `telemetry.Setup` |
+| `http.server.request.duration` | histogram | `s` | route (chi pattern), method (otelchi metric defaults) | all three binaries | `otelchimetric.NewServerRequestDuration` in `internal/adapters/inbound/http/server.go`, `cmd/mcp/router.go`, `cmd/a2a/router.go` |
+| Go runtime metrics (`go.goroutine.count`, `go.memory.used`, GC and others) | various | various | various | all three binaries | `go.opentelemetry.io/contrib/instrumentation/runtime`, started in `telemetry.Setup` |
 
 The business counter is incremented once per `PublishContent` attempt: a
 revision that was saved counts `outcome=published`; a refusal counts
@@ -54,7 +54,7 @@ histogram in this fleet; use Kong's `kong_http_requests_total` for 5xx.
 
 | Span | Kind | Created by | Attributes |
 | --- | --- | --- | --- |
-| `<METHOD> <chi route pattern>` (one name per route, not per item id) | server | `otelchi.Middleware` in the REST router and in `cmd/a2a` | HTTP semantic attributes |
+| `<METHOD> <chi route pattern>` (one name per route, not per item id) | server | `otelchi.Middleware` in the REST router, in `cmd/mcp` and in `cmd/a2a` | HTTP semantic attributes |
 | `<topic> process` (for example `retailnetwork.offer-availability.events process`) | consumer | `internal/adapters/inbound/kafka/tracing.go` | `messaging.system=kafka`, `messaging.destination.name`, `messaging.operation.name=process`; errors are recorded on the span |
 | `a2a.skill <skill id>` | internal | `internal/adapters/inbound/a2a/skills.go` | `a2a.skill`; status Error with the problem detail when the skill answers a problem |
 
@@ -75,9 +75,10 @@ so a record written with a span-carrying context gets `trace_id` and `span_id`.
 | Log line (`msg`) | Level | Fields | Source |
 | --- | --- | --- | --- |
 | `http request` (one per call; `/healthz` and `/readyz` are skipped) | INFO (2xx/3xx), WARN (4xx), ERROR (5xx) | `method`, `route` (pattern, never the raw path), `status`, `duration_ms`, `bytes`, `request_id`, `trace_id`, `span_id` | `internal/adapters/inbound/requestlog/requestlog.go` |
-| `telemetry configured` | INFO | `service_name`, `otlp_endpoint` | `cmd/api/telemetry.go`, `cmd/a2a/main.go` |
+| `telemetry configured` | INFO | `service_name`, `otlp_endpoint` | `cmd/api/telemetry.go`, `cmd/mcp/telemetry.go`, `cmd/a2a/main.go` |
 | `readiness: dependency is not ready` | WARN | `dependency` (`postgres` or `kafka`), `error` | `internal/adapters/inbound/http/readiness.go` |
-| `postgres adapters configured` / `postgres read side configured` | INFO | none | `cmd/api/main.go`, `cmd/a2a/main.go` |
+| `postgres adapters configured` / `postgres read side configured` / `postgres repositories configured` | INFO | none | `cmd/api/main.go`, `cmd/a2a/main.go`, `cmd/mcp/main.go` |
+| `mcp server starting` / `mcp server listening (Streamable HTTP)` | INFO | `version`, `environment` / `addr` | `cmd/mcp/main.go` |
 | `retrying`, `succeeded after retry` (boot migrations / first ping) | WARN / INFO | `op`, `attempt`, `in`, `err` | `internal/bootretry/bootretry.go` |
 | `consumer running` | INFO | `consumer`, `topic`, `group_id`, `brokers` | `cmd/api/main.go` |
 | `outbox relay running` | INFO | `interval`, `max_attempts`, `topic` | `cmd/api/main.go` |
@@ -91,6 +92,7 @@ so a record written with a span-carrying context gets `trace_id` and `span_id`.
 | `shutdown: readiness flipped to not-ready; waiting for traffic to drain` | INFO | `drain_delay` | `cmd/api/main.go` |
 | `<worker> stopped unexpectedly: ...` / `consumer stopped` / `outbox relay stopped` | ERROR | `consumer`, `error` | `cmd/api/main.go` |
 | `a2a skill failed` | ERROR | `error` | `internal/adapters/inbound/a2a/skills.go` |
+| `mcp tool failed with an unexpected error` | ERROR | `error` | `internal/adapters/inbound/mcp/errors.go` |
 | `invalid OUTBOX_RELAY_INTERVAL; using the default`, `invalid OUTBOX_MAX_ATTEMPTS; using the default`, `ignoring invalid SHUTDOWN_DRAIN_DELAY` | WARN | `value`, `default` | `cmd/api/config.go` |
 
 ## Dashboards and alerts (warehouse-infra `develop`)
@@ -106,8 +108,9 @@ All alert annotations point their `runbook_url` at this repo's runbook
 [Runbook](/docs/operations/runbook)) and their `dashboard_url` at the
 dashboard above. There is **no** alert on outbox lag for this context (the
 `WarehouseOutboxLagHigh` rule exists only for other contexts), none on
-consumer lag, and no panel for the A2A pod beyond the shared `service_name=~"product-content.*"`
-selectors. The dashboard and the Kong selectors also mention `-mcp` and
-`-reports` routes that this repo does not have; they match nothing here.
+consumer lag, and no panel for the MCP or A2A pod beyond the shared `service_name=~"product-content.*"`
+selectors (the MCP server's `product-content-mcp` falls under that pattern). When this page was
+written the dashboard and the Kong selectors also mentioned `-mcp` and `-reports` routes; `-mcp` now
+has a counterpart in this repo (off until `warehouse-infra` switches it on), `-reports` has none.
 
 Debugging pointers: [Troubleshooting](/docs/operations/troubleshooting).

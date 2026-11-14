@@ -1,0 +1,206 @@
+[
+  {
+    "_meta": {
+      "com.warehouse/authority": "L1"
+    },
+    "annotations": {
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Read the product content of one catalogue item exactly as GET /product-contents/{catalogItemId} returns it: the state (DRAFT, PUBLISHED or RETIRED, with retiredReason MANUAL, DISCARDED or DISCONTINUED when retired), the description, bullets, attributes (name, value, optional unit), media (mediaId, url, altText, role PRIMARY or GALLERY), the primary category id, the revision of the current shape and the publishedRevision shoppers see (0 when never published), with the created, updated, published and retired instants. DRAFT and RETIRED content are answered too. Read-only; an unknown item fails with not-found.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "catalogItemId": {
+          "description": "the catalogue item id whose product content is read, e.g. item-123",
+          "type": "string"
+        }
+      },
+      "required": [
+        "catalogItemId"
+      ],
+      "type": "object"
+    },
+    "name": "get_product_content",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "attributes": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "unit": {
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "value"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "bullets": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "catalogItemId": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "media": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "altText": {
+                "type": "string"
+              },
+              "mediaId": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "mediaId",
+              "url",
+              "altText",
+              "role"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "primaryCategoryId": {
+          "type": "string"
+        },
+        "publishedAt": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "publishedRevision": {
+          "type": "integer"
+        },
+        "retiredAt": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "retiredReason": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer"
+        },
+        "state": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "catalogItemId",
+        "state",
+        "description",
+        "bullets",
+        "attributes",
+        "media",
+        "revision",
+        "publishedRevision",
+        "createdAt",
+        "updatedAt"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "_meta": {
+      "com.warehouse/authority": "L1"
+    },
+    "annotations": {
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Read the whole live category tree exactly as GET /categories returns it: the tree version and every category with its id, parent id (omitted for a root), name and path from the root, parents before children. Before the first category the tree is version 0 and empty. Takes no arguments. Read-only.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "name": "list_categories",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "categories": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "categoryId": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "parentId": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "categoryId",
+              "name",
+              "path"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "categories"
+      ],
+      "type": "object"
+    }
+  }
+]

@@ -71,7 +71,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Ecosystem',
-      items: ['ecosystem/integration'],
+      items: ['ecosystem/integration', 'mcp/tools'],
     },
     {
       type: 'category',
@@ -116,6 +116,11 @@ const sidebars: SidebarsConfig = {
           type: 'link',
           label: '0007 Adopt the fleet REST API guideline',
           href: '/docs/adr/0007-adopt-fleet-rest-api-guideline',
+        },
+        {
+          type: 'link',
+          label: '0008 A read-only MCP server',
+          href: '/docs/adr/0008-read-only-mcp-server',
         },
       ],
     },
