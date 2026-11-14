@@ -47,9 +47,10 @@ wrong.
 :::
 
 :::info Not in this pack
-The A2A agent ([ADR 0006](/docs/adr/0006-a2a-inbound-adapter)) is a read surface
-over two existing queries and adds no aggregate, entity or event of its own, so the
-pack has no page for it; it is on the [API overview](/docs/api-reference). There is
-no MCP server and no web remote. The application layer, the HTTP and Kafka
+The A2A agent ([ADR 0006](/docs/adr/0006-a2a-inbound-adapter)) and the MCP server
+([ADR 0008](/docs/adr/0008-read-only-mcp-server)) are read surfaces over two
+existing queries and add no aggregate, entity or event of their own, so the pack
+has no page for them; they are on the [API overview](/docs/api-reference) and
+[MCP tools](/docs/mcp/tools). There is no web remote. The application layer, the HTTP and Kafka
 adapters, the outbox relay and the database schema are covered by the pages above.
 :::

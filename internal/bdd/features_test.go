@@ -73,4 +73,6 @@ func initializeScenario(sc *godog.ScenarioContext) {
 	registerEvents(sc, w)
 	registerHTTP(sc, w)
 	registerAssertions(sc, w)
+	registerWave2(sc, w)
+	registerRules(sc, w)
 }

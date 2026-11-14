@@ -34,9 +34,9 @@ flowchart LR
     C1["CreateProductContent<br/>POST /product-contents"]:::command
     RM["CatalogItemView<br/>item known, not<br/>discontinued?"]:::readmodel
     G1["ProductContent<br/>DRAFT"]:::aggregate
-    C1b["ReviseDraft or ReviseContent<br/>POST revise, state picks"]:::command
-    C1c["DiscardDraft<br/>POST discard, no event"]:::command
-    C2["PublishContent<br/>POST publish"]:::command
+    C1b["ReviseDraft or ReviseContent<br/>POST /product-contents/catalogItemId/revisions,<br/>state picks"]:::command
+    C1c["DiscardDraft<br/>DELETE /product-contents/catalogItemId/draft,<br/>no event"]:::command
+    C2["PublishContent<br/>POST /product-contents/catalogItemId/publications"]:::command
     P1["Publish gate<br/>description, one PRIMARY<br/>medium, category in tree"]:::policy
     E1["ProductContentPublished<br/>current revision"]:::event
     PD["product-discovery<br/>product view"]:::external
@@ -63,8 +63,8 @@ A DRAFT is editable (`ReviseDraft`, new revision) and discardable (`DiscardDraft
 reason `DISCARDED`, no event because nothing was ever published). Revising PUBLISHED
 content (`ReviseContent`) takes a new revision but publishes nothing: the revision
 leaves the boundary on the next `PublishContent`, which republishes
-(`PUBLISHED` to `PUBLISHED`). Retiring by hand (`RetireContent`) is shown on board 3
-as a policy.
+(`PUBLISHED` to `PUBLISHED`). Retiring by hand (`RetireContent`, `POST /product-contents/{catalogItemId}/retirements`)
+is not drawn on this board; board 3 shows only the `RetireOnDiscontinue` policy.
 
 Omitted: the invariant errors, the outbox and the `Idempotency-Key` handling.
 
@@ -74,8 +74,8 @@ Omitted: the invariant errors, the outbox and the `Idempotency-Key` handling.
 flowchart LR
     CM["content manager"]:::actor
     C1["CreateCategory<br/>POST /categories"]:::command
-    C2["MoveCategory<br/>POST move"]:::command
-    C3["RenameCategory<br/>POST rename"]:::command
+    C2["MoveCategory<br/>PUT /categories/categoryId/parent"]:::command
+    C3["RenameCategory<br/>PUT /categories/categoryId/name"]:::command
     G2["CategoryTree<br/>the live tree"]:::aggregate
     P2["Structural rules<br/>no cycle, depth 4,<br/>unique sibling names"]:::policy
     C4["PublishCategoryTree<br/>POST /category-tree-publications"]:::command

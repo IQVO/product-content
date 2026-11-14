@@ -36,3 +36,12 @@ a2a:
       - name: warehouse-gateway
         namespace: kong
         sectionName: http
+mcp:
+  enabled: true
+  route:
+    enabled: true
+    path: /api/mcp/product-content
+    parentRefs:
+      - name: warehouse-gateway
+        namespace: kong
+        sectionName: http

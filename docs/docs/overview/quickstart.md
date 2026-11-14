@@ -70,6 +70,13 @@ A2A_ADDR=:8093 go run ./cmd/a2a
 curl -s http://localhost:8093/.well-known/agent-card.json | jq .name
 ```
 
+Or the read-only MCP server (same database, no Kafka; Streamable HTTP at `/mcp`):
+
+```sh
+MCP_ADDR=:8090 go run ./cmd/mcp
+curl -s http://localhost:8090/healthz
+```
+
 ## First calls
 
 Every state-changing POST needs an `Idempotency-Key` header (1 to 128

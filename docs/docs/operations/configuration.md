@@ -7,18 +7,18 @@ sidebar_position: 1
 
 # Configuration
 
-`product-content` ships **two binaries**, `cmd/api` and `cmd/a2a`, both
+`product-content` ships **three binaries**, `cmd/api`, `cmd/mcp` and `cmd/a2a`, all
 configured only through environment variables. There is no config file, no
-flag and no secret-manager integration in the repository. REST and A2A are
+flag and no secret-manager integration in the repository. REST, MCP and A2A are
 unauthenticated fleet-wide, so there is no token or key to configure.
 
-The service runs on real Postgres (both binaries) and real Kafka (`cmd/api`
+The service runs on real Postgres (all three binaries) and real Kafka (`cmd/api`
 only) with no in-memory mode. Mandatory variables are validated before
 anything is opened or bound; a missing one is a boot error that names it
 (see [Troubleshooting](/docs/operations/troubleshooting)).
 
 The variables are read in `cmd/api/config.go`, `cmd/api/main.go`,
-`cmd/api/telemetry.go`, `cmd/a2a/main.go` and, for the telemetry resource,
+`cmd/api/telemetry.go`, `cmd/mcp/main.go`, `cmd/mcp/telemetry.go`, `cmd/a2a/main.go` and, for the telemetry resource,
 `internal/adapters/outbound/telemetry/telemetry.go`. No other package reads
 the environment. There are no test-only variables (the integration tests start
 their own containers).
@@ -47,6 +47,24 @@ one process.
 The first mandatory failure is returned alone (the checks run in the order
 `DATABASE_URL`, `KAFKA_BROKERS`, `OFFER_AVAILABILITY_CONSUMER_GROUP`).
 
+## `cmd/mcp`
+
+Read-only Model Context Protocol server over the same Postgres ([MCP tools](/docs/mcp/tools)). It has
+no Kafka producer, consumer or relay, so it reads **no** `KAFKA_BROKERS`,
+`OFFER_AVAILABILITY_CONSUMER_GROUP` or `OUTBOX_*` variable; the chart never renders them into this
+workload.
+
+| Variable | Default | Required? | Meaning |
+| --- | --- | --- | --- |
+| `MCP_ADDR` | `:8090` | no | Listen address (Streamable HTTP on `/mcp` and `/`, `/healthz`). The chart keeps `mcp.service.targetPort` equal to its port. |
+| `DATABASE_URL` | none | **yes** | Postgres DSN (the same database as `cmd/api`). Missing = boot error `DATABASE_URL is required: this context runs on real Postgres, there is no in-memory mode`. |
+| `MIGRATIONS_DATABASE_URL` | value of `DATABASE_URL` | no | Direct DSN for the embedded boot migrations; `cmd/mcp` applies them on start like `cmd/api` (idempotent). |
+| `LOG_LEVEL` | `info` | no | As `cmd/api`. |
+| `OTEL_SERVICE_NAME` | `product-content-mcp` | no | `service.name` of spans and metrics. Note the `-mcp` default, different from `cmd/api`. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | no | Collector OTLP/gRPC endpoint. |
+| `SERVICE_VERSION` | `dev` | no | `service.version`, also logged at boot. |
+| `ENVIRONMENT` | `local` in telemetry, `dev` in the boot log line | no | `deployment.environment.name`, read by `telemetry.Setup` and logged at boot. The chart does not render it: set it through `mcp.extraEnv`. |
+
 ## `cmd/a2a`
 
 Read-only Agent2Agent agent over the same Postgres. It has no Kafka producer,
@@ -73,16 +91,16 @@ Real output shape of a misconfigured start is documented in
 `GET /readyz` is 200 only when the shutdown drain gate is open **and**
 Postgres answers a ping **and** a Kafka broker answers a topic-less metadata
 request. The verdict is cached for 3 s and a round of checks is bounded by 2 s.
-`/healthz` is liveness only. `cmd/a2a` serves `GET /healthz` only and uses it
-for all three probes; it has no `/readyz`.
+`/healthz` is liveness only. `cmd/a2a` and `cmd/mcp` serve `GET /healthz` only and use it
+for all three probes; they have no `/readyz`.
 
 ## Compiled-in settings (not configurable)
 
 | Setting | Value | Source |
 | --- | --- | --- |
-| HTTP `ReadHeaderTimeout` | 5 s (both binaries) | `cmd/api/main.go`, `cmd/a2a/main.go` |
-| HTTP graceful shutdown timeout / per-worker drain timeout | 10 s / 10 s (`cmd/api`); 10 s (`cmd/a2a`) | `cmd/api/main.go` (`shutdownTimeout`, `workerDrainTimeout`), `cmd/a2a/main.go` |
-| Telemetry flush on shutdown | 5 s | `cmd/api/telemetry.go`, `cmd/a2a/main.go` |
+| HTTP `ReadHeaderTimeout` | 5 s (all three binaries) | `cmd/api/main.go`, `cmd/mcp/main.go`, `cmd/a2a/main.go` |
+| HTTP graceful shutdown timeout / per-worker drain timeout | 10 s / 10 s (`cmd/api`); 10 s (`cmd/mcp`, `cmd/a2a`) | `cmd/api/main.go` (`shutdownTimeout`, `workerDrainTimeout`), `cmd/mcp/main.go`, `cmd/a2a/main.go` |
+| Telemetry flush on shutdown | 5 s | `cmd/api/telemetry.go`, `cmd/mcp/telemetry.go`, `cmd/a2a/main.go` |
 | Postgres pool size and statement timeout | 10 connections, `statement_timeout = 5s` | `internal/adapters/outbound/postgres/pool.go` |
 | Boot retry (migrations, first ping) | 5 attempts, backoff 1 s, 2 s, 4 s, 8 s | `internal/bootretry/bootretry.go` |
 | Outbox relay batch size | 100 rows per pass | `internal/adapters/outbound/outbox/relay.go` (`DefaultBatchSize`) |
@@ -98,23 +116,23 @@ for all three probes; it has no `/readyz`.
 
 ## What is deliberately absent
 
-- **No auth variables.** REST and A2A are unauthenticated fleet-wide;
+- **No auth variables.** REST, MCP and A2A are unauthenticated fleet-wide;
   `TestNoAuthMiddlewareReintroduced` guards REST.
 - **No `*_MODE` variables.** Postgres and Kafka are the only runtime; the
   chart refuses any `*_MODE` entry in `extraEnv`.
-- **No MCP.** The repo has no `cmd/mcp`.
+- **No MCP write variable.** `cmd/mcp` is read-only and reads no Kafka, relay or consumer variable.
 - **No CORS, rate-limit or feature-flag variables.**
 
 ## Chart values
 
 `charts/product-content` maps these variables onto the pods: `database.*`,
-`kafka.brokers`, `config.*`, `otel.*` and `a2a.*` (see
+`kafka.brokers`, `config.*`, `otel.*`, `mcp.*` and `a2a.*` (see
 [Runbook](/docs/operations/runbook)).
 
 | Chart value | Variable |
 | --- | --- |
 | `config.httpAddr` | `HTTP_ADDR` |
-| `config.logLevel` | `LOG_LEVEL` (api and a2a) |
+| `config.logLevel` | `LOG_LEVEL` (api, mcp and a2a) |
 | `config.offerAvailabilityConsumerGroup` | `OFFER_AVAILABILITY_CONSUMER_GROUP` |
 | `config.outboxRelayInterval` | `OUTBOX_RELAY_INTERVAL` |
 | `config.outboxMaxAttempts` | `OUTBOX_MAX_ATTEMPTS` |
@@ -122,6 +140,8 @@ for all three probes; it has no `/readyz`.
 | `database.url` / `database.existingSecret` | `DATABASE_URL` (always from a Secret) |
 | `database.migrationsExistingSecretKey` / `database.migrationsUrl` | `MIGRATIONS_DATABASE_URL` |
 | `kafka.brokers` | `KAFKA_BROKERS` |
-| `otel.endpoint`, `otel.serviceName` | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` (a2a gets `<serviceName>-a2a`) |
+| `otel.endpoint`, `otel.serviceName` | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` (mcp gets `<serviceName>-mcp`, a2a gets `<serviceName>-a2a`) |
+| `mcp.httpAddr` | `MCP_ADDR` |
+| `mcp.extraEnv` | extra variables of the mcp container (for example `ENVIRONMENT`); the chart refuses `*_MODE`, Kafka, outbox, consumer-group and chart-owned names |
 | `a2a.httpAddr` | `A2A_ADDR` |
 | `a2a.agentUrl` | `A2A_AGENT_URL` |

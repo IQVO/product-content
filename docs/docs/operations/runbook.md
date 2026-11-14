@@ -9,11 +9,12 @@ sidebar_position: 2
 
 Product Content owns descriptions, bullets, attributes, media URLs and the
 category tree that enrich a network catalogue item (no price, no stock, no
-PII). It ships **two binaries in one image**:
+PII). It ships **three binaries in one image**:
 
 | Binary | Role | Port | Kubernetes workload |
 | --- | --- | --- | --- |
 | `cmd/api` (image `ENTRYPOINT ./api`) | REST API, the transactional outbox relay and the offer-availability consumer in a single process | `:8080` | Deployment `<release>` (always on) |
+| `cmd/mcp` (`command: ["/app/mcp"]`) | Read-only MCP server over the same Postgres ([MCP tools](/docs/mcp/tools)): no Kafka, no relay | `:8090` | Deployment `<release>-mcp` (optional, `mcp.enabled`, default off) |
 | `cmd/a2a` (`command: ["/app/a2a"]`) | Read-only A2A agent over the same Postgres: no Kafka, no relay | `:8093` | Deployment `<release>-a2a` (optional, `a2a.enabled`, default off) |
 
 Runtime: real Postgres and, for `cmd/api`, real Kafka only. There is no
@@ -29,7 +30,8 @@ The chart is `charts/product-content` (packaged by the `release` job as
 SHA). The kind cluster deploys it through the warehouse-infra ArgoCD app
 (`helm-values/product-content.yaml`) with the local image
 `warehouse/product-content`; Kong serves the API under `/api/product-content`
-and, when enabled, the A2A agent under `/api/a2a/product-content`. The pods run
+and, when enabled, the MCP server under `/api/mcp/product-content` and the A2A agent under
+`/api/a2a/product-content`. The pods run
 as uid 1000 with a read-only root filesystem.
 
 Mandatory values — the chart refuses to render without them:
@@ -56,6 +58,25 @@ helm upgrade --install product-content charts/product-content \
   --set kafka.brokers=kafka.kafka.svc.cluster.local:9092 \
   --set config.offerAvailabilityConsumerGroup=product-content-offer-availability
 kubectl -n product-content rollout status deployment/product-content
+```
+
+### MCP server
+
+`mcp.enabled=true` adds a Deployment `<release>-mcp`, a ClusterIP Service (port 8090) and an
+optional Gateway route (`mcp.route.enabled`, path `/api/mcp/product-content`, rewritten to
+`/mcp`). It needs only `DATABASE_URL` (+ `MIGRATIONS_DATABASE_URL`); `MCP_ADDR` must keep the
+port of `mcp.service.targetPort` (the chart refuses a mismatch). Kafka, outbox and
+consumer-group variables are never rendered into it and `mcp.extraEnv` refuses them, any
+`*_MODE` and every chart-owned name. All three probes use `GET /healthz`. It applies the
+embedded migrations on start like the API and reads the data the API writes, so deploy the API
+in the same release. Switching it on in an environment is a `warehouse-infra` step
+(`helm-values/product-content.yaml`), not part of this repository.
+
+```sh
+helm upgrade --install product-content charts/product-content \
+  --namespace product-content --reuse-values --set mcp.enabled=true
+kubectl -n product-content port-forward svc/product-content-mcp 8090:8090
+curl -i http://localhost:8090/healthz
 ```
 
 ### A2A agent
@@ -91,7 +112,7 @@ offsets, with no replay storm.
 
 ## Health and readiness
 
-- `GET /healthz`: liveness only (startup + liveness probes of the API; all probes of the A2A agent).
+- `GET /healthz`: liveness only (startup + liveness probes of the API; all probes of the MCP server and the A2A agent).
 - `GET /readyz` (API only): 200 only while Postgres answers a ping AND a Kafka
   broker answers a topic-less metadata request (verdict cached 3s, check
   bounded to 2s). A failed dependency is `503` with a problem document naming
@@ -118,12 +139,12 @@ orchestrator restarts the service`).
 SIGTERM: (1) `/readyz` flips to 503, (2) wait `SHUTDOWN_DRAIN_DELAY`, (3) drain
 HTTP (10 s), (4) stop and await the consumer (10 s), (5) stop and await the
 relay last (10 s) so nothing committed is stranded, (6) flush telemetry (5 s),
-close the pool. The A2A agent only drains HTTP (10 s).
+close the pool. The MCP server and the A2A agent only drain HTTP (10 s).
 
 ## Migrations
 
 Embedded in the binary (`internal/adapters/outbound/postgres/migrations/`),
-applied by golang-migrate at boot of **both** binaries against
+applied by golang-migrate at boot of **all three** binaries against
 `MIGRATIONS_DATABASE_URL` (a direct, session-mode connection because the
 advisory lock does not survive a transaction-mode pooler; if the pooled DSN
 goes through one, keep the direct key populated or migrations hang). Concurrent
@@ -211,6 +232,7 @@ grow; prune them by hand when needed (see [Troubleshooting](/docs/operations/tro
 | Check consumer lag | `kafka-consumer-groups --bootstrap-server localhost:9092 --describe --group product-content-offer-availability` |
 | Raise log detail | set `config.logLevel=debug` and roll the Deployment |
 | Look at a failing request | take the `request_id` or `trace_id` from the client/`http request` log line and search Loki `{app="product-content"}` |
+| Make the MCP server reachable through the gateway | `mcp.enabled=true`, `mcp.route.enabled=true`, `mcp.route.parentRefs[0].name`/`namespace` of the Gateway (path `/api/mcp/product-content`) |
 | Make the A2A agent reachable off-cluster | `a2a.enabled=true`, `a2a.route.enabled=true`, set `a2a.agentUrl` to the public URL |
 | Scale the API | `replicaCount` or `autoscaling.api.enabled`; N>1 is safe for the relay (row claims) and the consumer (stable group, inbox) but has not been load-tested |
 

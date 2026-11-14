@@ -12,8 +12,9 @@ package architecture
 //     and of cmd/a2a: only the two read use cases (plus the Deps bundle that
 //     carries their repositories) may be referenced, no write port, no outbox,
 //     inbox, unit of work, Kafka or in-memory package, no Kafka variable and no
-//     outbound A2A client. product-content has no MCP surface to derive a write
-//     from, so the agent is read-only by construction.
+//     outbound A2A client. the MCP server (ADR 0008) is read-only too, so
+//     there is no write surface to derive a skill from and the agent is read-only
+//     by construction.
 //   - TestA2ASensorBites proves the detector flags each forbidden shape from
 //     code fixtures, so the sensor above cannot pass vacuously.
 

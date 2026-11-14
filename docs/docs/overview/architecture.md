@@ -24,6 +24,7 @@ is on `develop`.
 | Application | `internal/application/readmodel`, `views`, `idempotency`, `outbox` | The `CatalogItem` read model, the response views, the idempotency record, the already-encoded outbox `Message`. |
 | Inbound adapter | `internal/adapters/inbound/http` | chi router for `apis/openapi.yaml`: handlers, RFC 9457 problem mapping (`errors.go`), the `Idempotency-Key` middleware, NUL rejection, `/healthz` and `/readyz`. No auth middleware. |
 | Inbound adapter | `internal/adapters/inbound/kafka` | The offer-availability consumer: CloudEvents decode, dispatch on the full `type`, retry with backoff, dead-letter topic. Decode only, every effect is a use case. |
+| Inbound adapter | `internal/adapters/inbound/mcp` | The read-only MCP server: two L1 tools, one resource, one prompt, stateless Streamable HTTP handler ([ADR 0008](/docs/adr/0008-read-only-mcp-server), [MCP tools](/docs/mcp/tools)). |
 | Inbound adapter | `internal/adapters/inbound/a2a` | The read-only A2A agent: Agent Card, two skills, JSON-RPC handler ([ADR 0006](/docs/adr/0006-a2a-inbound-adapter)). |
 | Inbound adapter | `internal/adapters/inbound/requestlog` | The request-log middleware that carries `trace_id` and `span_id`. |
 | Outbound adapter | `internal/adapters/outbound/postgres` | pgxpool repositories, unit of work (`pgtx`), outbox and idempotency stores, inbox, embedded migrations (`migrations/0001_product_content_schema.*.sql`). |
@@ -48,9 +49,10 @@ package never imports the category package.
 | Binary | Role | Port | Probes |
 | --- | --- | --- | --- |
 | `cmd/api` | REST API, the transactional outbox relay and the offer-availability consumer in one process, all always on, on real Postgres and real Kafka. | `HTTP_ADDR`, default `:8080` | `GET /healthz` (liveness), `GET /readyz` (drain gate, Postgres ping, a Kafka broker answers a topic-less metadata request) |
+| `cmd/mcp` | Read-only MCP server over `GetProductContent` and `ListCategories`: Streamable HTTP at `/mcp` and `/`, stateless, two tools, one resource, one prompt. No Kafka, no relay, no consumer, no write. | `MCP_ADDR`, default `:8090` | `GET /healthz` for liveness and readiness |
 | `cmd/a2a` | Read-only A2A server over `GetProductContent` and `ListCategories`: JSON-RPC 2.0 at `/` and `/a2a`, Agent Card at `/.well-known/agent-card.json`. No Kafka, no relay, no consumer, no write. | `A2A_ADDR`, default `:8093` | `GET /healthz` for liveness and readiness |
 
-There is no `cmd/mcp`. How `cmd/api` boots, what it starts and in which order
+How `cmd/api` boots, what it starts and in which order
 it stops is in the [Runbook](/docs/operations/runbook); every variable is in
 [Configuration](/docs/operations/configuration).
 
@@ -61,6 +63,7 @@ flowchart TB
     OA["offer-availability<br/>topic retailnetwork.offer-availability.events"]
     CLI["content managers, product-discovery<br/>REST, unauthenticated"]
     AG["agents<br/>A2A JSON-RPC"]
+    AM["agents<br/>MCP Streamable HTTP"]
     subgraph api["cmd/api (one process)"]
         direction TB
         http["inbound/http<br/>chi router, problem+json,<br/>Idempotency-Key"]
@@ -80,14 +83,19 @@ flowchart TB
     subgraph a2a["cmd/a2a (second process)"]
         a2ain["inbound/a2a<br/>get_product_content, list_categories"]
     end
+    subgraph mcp["cmd/mcp (third process)"]
+        mcpin["inbound/mcp<br/>get_product_content, list_categories,<br/>content resource, review prompt"]
+    end
     PG[("Postgres<br/>6 tables")]
     KB[("Kafka<br/>retailnetwork.product-content.events")]
     OA --> kin
     CLI --> http
     AG --> a2ain
+    AM --> mcpin
     http --> uc
     kin --> uc
     a2ain --> uc
+    mcpin --> uc
     uc --> ports
     uc --> ct
     uc --> cg
@@ -97,10 +105,11 @@ flowchart TB
     relay --> enc
     enc --> KB
     a2ain -. reads .-> PG
+    mcpin -. reads .-> PG
 ```
 
 Source: `cmd/api/main.go` (`buildAdapters`, `buildServer`, `startConsumers`,
-`startOutboxRelay`), `cmd/a2a/main.go` (`readDeps`),
+`startOutboxRelay`), `cmd/a2a/main.go` (`readDeps`), `cmd/mcp/main.go` (`buildDeps`),
 `internal/application/ports/ports.go` (the OUT ports),
 `internal/adapters/outbound/kafka/encoder.go` and
 `internal/architecture/architecture_test.go`. The in-memory adapters are not in
@@ -135,7 +144,8 @@ The tests run on every PR (`arch-test` job, `make arch-test`):
 | Test | Rule |
 | --- | --- |
 | `TestHexagonalArchitecture` | `**.internal.domain.**` depends only on domain, `**.internal.application.**` only on domain and application, inbound adapters do not depend on outbound adapters and vice versa, nothing under `internal/` imports `cmd`, `internal/application/ports` holds only interfaces. |
-| `TestMCPAdapterDependencyRule`, `TestMCPOptionalToolInputsCarryOmitempty` | Guards for an MCP adapter, which this repo does not have. They pass on an empty set. |
+| `TestMCPAdapterDependencyRule`, `TestMCPOptionalToolInputsCarryOmitempty` | The MCP adapter depends only on application and domain (so it imports no `inbound/http`), nothing but `cmd/mcp` depends on it, and every optional tool input carries `omitempty` so the SDK publishes it as optional. |
+| `TestEveryMCPToolDeclaresAuthority`, `TestMCPWriteToolsAreAtLeastL3`, `TestA2ASkillsDeclareAuthority`, `TestMCPServerOffersResourceAndPrompt` | Agentic Standard v2 (static `go/ast` sensors): every MCP tool and A2A skill declares exactly one authority level, a tool that is not provably read-only is L3 or above, and the MCP server offers at least one resource and one prompt. |
 | `TestA2AAdapterDependencyRule`, `TestA2AAgentIsReadOnlyWithNoOutboundClient` | The A2A adapter depends only on application and domain, nothing depends on it, it reaches only the two read use cases and imports no A2A client: this context is delegated to, it never delegates. |
 | `TestNoAuthMiddlewareReintroduced` | No bearer-token or JWT library in non-comment source under `internal/adapters/inbound`: REST is unauthenticated fleet-wide. |
 | `TestKafkaConsumerGroupNeverHardcodedInline` | No literal `GroupID`: the group comes from `OFFER_AVAILABILITY_CONSUMER_GROUP`. |

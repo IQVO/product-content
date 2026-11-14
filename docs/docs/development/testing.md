@@ -18,13 +18,13 @@ tests and spec linting.
 | --- | --- | --- |
 | Unit, domain | 55 top-level test functions in 3 packages (`shared` 5, `content` 28, `category` 22) | `make test` |
 | Unit, application | 33 in `internal/application/{usecases,outbox,readmodel}` (`usecases` 31, `outbox` 1, `readmodel` 1) | `make test` |
-| Unit and httptest, adapters and binaries | `inbound/http` 20, `inbound/kafka` 33, `inbound/a2a` 13, `inbound/requestlog` 4, `outbound/kafka` 16, `outbound/outbox` 5, `outbound/telemetry` 11, `outbound/postgres` 3 (outbox trace unit tests), `kafka/cloudevents` 6, `cmd/api` 16, `cmd/a2a` 9, `bootretry` 6 | `make test` |
+| Unit and httptest, adapters and binaries | `inbound/http` 20, `inbound/kafka` 33, `inbound/a2a` 13, `inbound/mcp` 20, `inbound/requestlog` 4, `outbound/kafka` 16, `outbound/outbox` 5, `outbound/telemetry` 11, `outbound/postgres` 3 (outbox trace unit tests), `kafka/cloudevents` 6, `cmd/api` 16, `cmd/a2a` 9, `cmd/mcp` 12, `bootretry` 6 | `make test` |
 | Coverage gate | 90% over `./internal/domain/...,./internal/application/...` (`COVERAGE_THRESHOLD` in the `Makefile`) | `make coverage` |
 | BDD (godog / Gherkin) | 3 feature files, **13 scenarios** (5 + 4 + 4), run by `internal/bdd/features_test.go` with `Strict: true` | `make bdd` |
 | Repository contract | one suite, six sub-suites (`contents`, `tree`, `items`, `inbox`, `unitofwork`, `idempotency`), run against the in-memory store and against Postgres | `make test` (memory), `make integration` (Postgres) |
-| Integration (testcontainers) | 6 top-level tests behind `//go:build integration` in 8 files: `cmd/api` 2, `cmd/a2a` 1, `outbound/postgres` 3 | `make integration` |
+| Integration (testcontainers) | 9 top-level tests (not counting `TestMain`) behind `//go:build integration` in 10 files: `cmd/api` 2, `cmd/mcp` 1, `cmd/a2a` 1, `inbound/http` 2, `outbound/postgres` 3 | `make integration` |
 | Golden bytes | one `*.golden.json` per published event type in `internal/adapters/outbound/kafka/testdata` (3 files), compared byte for byte | `make test` |
-| Architecture fitness | 31 top-level test functions in `internal/architecture` | `make arch-test` |
+| Architecture fitness | 40 top-level test functions in `internal/architecture` | `make arch-test` |
 | Mutation (gremlins) | efficacy 95, mutant coverage 95 (`.gremlins.yaml`); measured 100% / 100% on the three domain packages | `make mutation`, `make mutation-full` |
 | Spec linting (Spectral) | OpenAPI and AsyncAPI, `--fail-severity=warn` | CI `api-lint` |
 | Helm chart tests | `charts/product-content/tests/render_test.sh`, `test_service_selectors.py` | CI `chart-tests` |
@@ -42,7 +42,7 @@ coverage scope and the mutation package list.
 | Target | Runs | Notes |
 | --- | --- | --- |
 | `make help` | prints the target list | default target |
-| `make build` | `go build ./...` | compiles `cmd/api` and `cmd/a2a` |
+| `make build` | `go build ./...` | compiles `cmd/api`, `cmd/mcp` and `cmd/a2a` |
 | `make vet` | `go vet ./...` | |
 | `make fmt` / `make fmt-check` | `gofmt -w .` / fail if `gofmt -l .` is non-empty | |
 | `make lint` | `golangci-lint run --allow-parallel-runners ./...` | pinned `v2.14.0`, config `.golangci.yml` |
@@ -85,6 +85,14 @@ are not tracked: run `lefthook install` once per clone.
   change the read model), `topic_not_ready_test.go` and `tracing_test.go`.
 - **A2A** (`internal/adapters/inbound/a2a`, `cmd/a2a`): the Agent Card, every
   skill mapping, the JSON-RPC router and the boot configuration.
+- **MCP** (`internal/adapters/inbound/mcp`, `cmd/mcp`): an in-memory MCP client over the real
+  server and the real read use cases seeded through the write use cases
+  (`tools_test.go`, `surface_test.go` for the resource and the prompt), the governance
+  gate (`governance_test.go`: exact tool set, budget, read-only annotations, no write verb,
+  no write seam), the pinned registry (`testdata/tool_registry.golden.json`, refresh with
+  `go test ./internal/adapters/inbound/mcp -run TestToolRegistryGolden -update`), raw
+  POSTs for the stateless handler (`stateless_test.go`) and the router, telemetry and boot
+  tests of `cmd/mcp`.
 - **Outbox relay and encoder**: relay ordering and attempt cap with a fake
   store, and the CloudEvents encoder checked against golden files. Refresh them
   deliberately with `go test ./internal/adapters/outbound/kafka -update`.
@@ -125,6 +133,7 @@ Docker is a failure, never a skip.
 | --- | --- | --- |
 | Real wiring | `cmd/api` (2) | with real Postgres and a real Kafka, a `CatalogItemCreated` event produced on the offer-availability topic makes content creatable, and after publish `ProductContentPublished` appears on the content topic keyed by the item id; a `CatalogItemDiscontinued` event retires the content with reason `DISCONTINUED` |
 | A2A over Postgres | `cmd/a2a` (1) | the A2A agent reads real Postgres data and writes nothing |
+| MCP over Postgres | `cmd/mcp` (1) | the real boot path (`buildDeps`) behind the real router: `/healthz`, `tools/list` returns exactly the two L1 read-only tools, a call reads what the write use cases persisted, an unknown item is a tool error, and the outbox row counts do not move |
 | Repositories | `outbound/postgres` (1) | `TestPostgresHonoursTheRepositoryContract` runs the whole `repocontract` suite against Postgres |
 | Migrations | `outbound/postgres` (1) | `TestMigrationsGoUpDownUp`: up, down, up on an empty database |
 | Outbox trace | `outbound/postgres` (1) | the active `traceparent` is stored with the outbox row |
@@ -158,6 +167,8 @@ The scheduled `mutation` job (Monday 06:00 UTC and on manual dispatch) mutates
 | --- | --- |
 | `TestHexagonalArchitecture` | six arch-go rules: `domain` depends on no internal package except `domain`; `application` only on `domain` and `application`; inbound and outbound adapters never import each other; nothing under `internal/` imports `cmd/`; `internal/application/ports` holds only interfaces |
 | `TestA2AAdapterDependencyRule`, `TestA2AAgentIsReadOnlyWithNoOutboundClient` | the A2A adapter is additive and read-only, with no outbound client (ADR 0006) |
+| `TestMCPAdapterDependencyRule`, `TestMCPOptionalToolInputsCarryOmitempty` | the MCP adapter depends only on application and domain, nothing else imports it, and every optional tool input carries `omitempty` (ADR 0008) |
+| `TestEveryMCPToolDeclaresAuthority`, `TestMCPWriteToolsAreAtLeastL3`, `TestA2ASkillsDeclareAuthority`, `TestMCPServerOffersResourceAndPrompt` | every MCP tool and A2A skill declares one authority level, a tool not provably read-only is L3 or above, and the MCP server offers a resource and a prompt (Agentic Standard v2) |
 | `TestRuntimeBinaryHasNoInMemoryAdapters` | `cmd/*` never imports `outbound/memory` |
 | `TestEventCatalogueMatchesContract` | every full CloudEvents type string that `apis/asyncapi.yaml` declares for this service also appears in a `*cloudevents*.md` ADR (the type catalogue, ADR 0004) |
 | `TestCloudEventsOnly`, `TestNoEventEnvelopeToggleOrFlatEnvelope` | every Kafka message is a structured-mode CloudEvent built through the cloudevents package |
@@ -189,11 +200,14 @@ make arch-test
 | `integration` | `go test -tags=integration ./... -race -count=1` | always |
 | `mutation-fast` | gremlins v0.6.0 on each package under `internal/domain/*/` | always; blocking |
 | `mutation` | `gremlins unleash ./internal/domain --workers 1 --timeout-coefficient 30`; harness:red issue on failure | schedule and dispatch only |
+| `drift` | `deadcode -test ./...`, `go mod tidy -diff` and `scripts/coverage-quality.py` (high-coverage functions with a surviving mutant) written to the job summary; `harness:red` issue on a scheduled failure | schedule and dispatch only |
 | `api-lint` | Spectral on `apis/openapi.yaml` and `apis/asyncapi.yaml`, `--fail-severity=warn` | always |
 | `vuln` | `govulncheck ./...` | always |
+| `docs-api-drift` | `npm ci`, `npm run clean-api-docs` and `npm run gen-api-docs` in `docs/`, then fails when `docs/docs/api-reference/rest` differs from what is committed | always |
 | `helm-lint` | `ct lint` and `helm lint` with each `charts/product-content/ci/*.yaml` values file | pull requests only |
 | `chart-tests` | every `charts/product-content/tests/*.sh` and `test_*.py`; a printed `SKIP` fails the job | always |
 | `arch-test` | `go test ./internal/architecture/... -v` | always |
+| `trivy-scan` | builds the image locally (not pushed), uploads a Trivy SARIF report (CRITICAL/HIGH/MEDIUM) and fails on a CRITICAL or HIGH OS/library finding that has a fix | pull requests only |
 | `docker-publish` | build and push `ghcr.io/iqvo/product-content`, cosign signature, SBOM attestation; needs the jobs above | push to `main` only |
 | `release` | tags the next patch version, retags the image, pushes the Helm chart, creates the GitHub release | push to `main`, after `docker-publish` |
 

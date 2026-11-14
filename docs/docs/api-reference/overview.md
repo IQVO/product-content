@@ -8,9 +8,10 @@ sidebar_position: 1
 
 # API overview
 
-:::info Implemented by cmd/api and cmd/a2a
+:::info Implemented by cmd/api, cmd/mcp and cmd/a2a
 `cmd/api` serves every REST route below (`internal/adapters/inbound/http`) on
-`HTTP_ADDR` (default `:8080`); `cmd/a2a` serves the read-only A2A agent on
+`HTTP_ADDR` (default `:8080`); `cmd/mcp` serves the read-only MCP server on
+`MCP_ADDR` (default `:8090`); `cmd/a2a` serves the read-only A2A agent on
 `A2A_ADDR` (default `:8093`). The contracts are `apis/openapi.yaml` and
 `apis/asyncapi.yaml`, pinned by [ADR 0001](/docs/adr/0001-product-content-bounded-context),
 [ADR 0002](/docs/adr/0002-product-content-assumptions) and
@@ -24,7 +25,7 @@ responses.
 | --- | --- | --- |
 | REST | `apis/openapi.yaml` (OpenAPI 3.0.3, version 0.1.0) | The pages under *REST* are generated from the spec with `npm run gen-api-docs`; do not edit them by hand. The spec names one server, `http://localhost:8080`; through Kong in the kind cluster the base path is `http://localhost:8000/api/product-content` (the prefix is stripped). |
 | Events | `apis/asyncapi.yaml` (AsyncAPI 3.0.0, version 1.0.0) | Summarised on the [event catalogue](/docs/api-reference/events); every field on [Domain events](/docs/ddd/domain-events). |
-| MCP | none | There is no `cmd/mcp`: this context has no MCP server and no MCP tool. |
+| MCP | [ADR 0008](/docs/adr/0008-read-only-mcp-server), `internal/adapters/inbound/mcp` | `cmd/mcp` serves Streamable HTTP on `/mcp` and `/` (port 8090; through Kong `/api/mcp/product-content`, rewritten to `/mcp`), `GET /healthz` for probes. Two read-only tools, every one authority L1, no write tool: `get_product_content` and `list_categories`; one resource and one prompt. See [MCP tools](/docs/mcp/tools). No auth, by fleet decision. |
 | A2A | [ADR 0006](/docs/adr/0006-a2a-inbound-adapter), `internal/adapters/inbound/a2a` | `cmd/a2a` serves JSON-RPC 2.0 on `/` and `/a2a` (port 8093; through Kong `/api/a2a/product-content`), the Agent Card at `/.well-known/agent-card.json`, `GET /healthz` for probes. Two read-only skills, no write skill: `get_product_content` and `list_categories`. No auth, by fleet decision. |
 
 ## Endpoints
@@ -87,7 +88,7 @@ Source: `internal/adapters/inbound/http/server.go` (`NewRouter`),
   characters of `A-Za-z0-9._:-` starting with a letter or digit.
 - **A NUL character** (U+0000) in a path, query or body is a client error, never a
   database failure (`internal/adapters/inbound/http/nul.go`).
-- **Auth**: none. The fleet reverted REST and A2A auth on 2026-09-11, and
+- **Auth**: none. The fleet reverted REST, MCP and A2A auth on 2026-09-11, and
   `TestNoAuthMiddlewareReintroduced` fails CI if auth middleware returns under
   `internal/adapters/inbound`.
 - **No PII.** No route or event carries a title, a price, stock or personal data.
