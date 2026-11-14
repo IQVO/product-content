@@ -185,6 +185,51 @@ otel:
   endpoint: "otel-collector.observability.svc.cluster.local:4317"
   serviceName: "product-content"
 
+# The read-only MCP server (cmd/mcp, ADR 0008): a driving adapter over the SAME
+# read use cases as the REST GETs and the A2A agent (tools get_product_content
+# and list_categories, one content resource, one prompt; every tool is L1),
+# served over Streamable HTTP at /mcp and /. READ-ONLY: it writes nothing, so
+# it needs no Kafka, no outbox and no consumer (KAFKA_BROKERS,
+# OFFER_AVAILABILITY_CONSUMER_GROUP and OUTBOX_* are never rendered into it),
+# and it calls no other context. It reads the same Postgres as the api
+# (DATABASE_URL from the same Secret) and applies the embedded migrations on
+# start like the api. Off by default; warehouse-infra turns it on. Requires the
+# api (same release) for the data it reads. No auth anywhere (fleet-wide
+# revert).
+mcp:
+  enabled: false
+  replicaCount: 1
+  # MCP_ADDR the binary listens on; its port must equal service.targetPort.
+  # (8080 is the api, 8090 is the fleet's MCP port, 8093 is the A2A agent.)
+  httpAddr: ":8090"
+  service:
+    type: ClusterIP
+    port: 8090
+    targetPort: 8090
+  # Gateway API exposure of the MCP server (mcp-route.yaml): host path
+  # /api/mcp/product-content rewritten to /mcp (the SDK's canonical endpoint on
+  # cmd/mcp; /healthz stays off the host). Off by default; warehouse-infra
+  # turns it on with the real parentRefs and path.
+  route:
+    enabled: false
+    path: "/api/mcp/product-content"
+    parentRefs:
+      - name: ""
+        namespace: ""
+        sectionName: "http"
+  # Extra env vars appended to the mcp container as a raw list (for example
+  # ENVIRONMENT, which cmd/mcp reads and the chart does not own). The chart
+  # refuses any *_MODE variable, any Kafka / relay / consumer variable (this
+  # server never dials Kafka) and any variable the chart renders itself.
+  extraEnv: []
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
 # A2A (Agent2Agent) agent (cmd/a2a, ADR 0006): a second driving adapter over the
 # SAME read use cases as the REST GETs. Skills (both reads): get_product_content
 # and list_categories. READ-ONLY: it writes nothing, so it needs no Kafka, no
