@@ -10,8 +10,8 @@
 // not a data-sync channel; facts between contexts still travel exclusively as
 // CloudEvents on Kafka (ADR 0004).
 //
-// This agent is READ-ONLY. The context has no MCP surface to derive a write
-// from, so both skills are backed by a use case a REST GET already exposes
+// This agent is READ-ONLY (ADR 0006), like the MCP server beside it (ADR 0008).
+// Both skills are backed by a use case a REST GET already exposes
 // (GetProductContent, ListCategories) and nothing here can change state, enqueue
 // an outbox row or publish an event. It depends inward on the application layer
 // and the domain only, never on an outbound adapter, and it holds no outbound
@@ -61,7 +61,9 @@ type Deps struct {
 // goal-shaped read skills, not one skill per endpoint. The card declares no
 // security schemes on purpose: this surface is unauthenticated by the same
 // fleet-wide decision as REST; schemes are added here, not in a redesign, if
-// that decision is ever reversed.
+// that decision is ever reversed. Every skill carries the tag authority:L1 (a
+// pure read, Agentic Standard v2 AS-1), the same level its MCP counterpart
+// declares (ADR 0008).
 func Card(cfg Config) *a2a.AgentCard {
 	return &a2a.AgentCard{
 		Name:        agentName,
@@ -82,7 +84,7 @@ func Card(cfg Config) *a2a.AgentCard {
 				ID:          skillGetProductContent,
 				Name:        "Product content of a catalogue item",
 				Description: "Reads the product content of one catalogue item exactly as GET /product-contents/{catalogItemId} returns it: state (DRAFT, PUBLISHED or RETIRED), description, bullets, attributes, media, primary category, revision and published revision. Answers a not-found problem when the item has no content. Changes nothing.",
-				Tags:        []string{agentName, "catalogue", "read"},
+				Tags:        []string{agentName, "catalogue", "read", "authority:L1"},
 				InputModes:  []string{modeJSON},
 				Examples: []string{
 					`{"skill":"get_product_content","arguments":{"catalogItemId":"item-123"}}`,
@@ -92,7 +94,7 @@ func Card(cfg Config) *a2a.AgentCard {
 				ID:          skillListCategories,
 				Name:        "The category tree",
 				Description: "Reads the whole live category tree exactly as GET /categories returns it: the tree version and every category with its id, parent id, name and path from the root. Before the first category the tree is version 0 and empty. Takes no arguments. Changes nothing.",
-				Tags:        []string{agentName, "categories", "read"},
+				Tags:        []string{agentName, "categories", "read", "authority:L1"},
 				InputModes:  []string{modeJSON},
 				Examples: []string{
 					`{"skill":"list_categories","arguments":{}}`,
