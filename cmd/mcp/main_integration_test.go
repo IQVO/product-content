@@ -113,8 +113,27 @@ func TestMCPAgainstPostgres_ReadsWhatTheAPIWroteAndNeverWrites(t *testing.T) {
 	srv := httptest.NewServer(newRouter(inboundmcp.Handler(inboundmcp.NewServer(deps)), newLogger("error"), "product-content-mcp"))
 	t.Cleanup(srv.Close)
 
-	// /healthz is open.
-	resp, err := http.Get(srv.URL + "/healthz")
+	assertHealthz(t, srv.URL)
+	session, err := sdk.NewClient(&sdk.Implementation{Name: "t", Version: "0"}, nil).
+		Connect(ctx, &sdk.StreamableClientTransport{Endpoint: srv.URL + "/mcp"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	assertToolsList(t, session)
+	assertReads(t, session, catID)
+
+	totalAfter, unpublishedAfter := outboxCounts(t, url)
+	if totalAfter != totalBefore || unpublishedAfter != unpublishedBefore {
+		t.Fatalf("outbox rows %d/%d unpublished before, %d/%d after: a read-only server wrote", totalBefore, unpublishedBefore, totalAfter, unpublishedAfter)
+	}
+}
+
+// assertHealthz proves the probe route is open.
+func assertHealthz(t *testing.T, baseURL string) {
+	t.Helper()
+	resp, err := http.Get(baseURL + "/healthz")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,32 +142,32 @@ func TestMCPAgainstPostgres_ReadsWhatTheAPIWroteAndNeverWrites(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || string(body) != `{"status":"ok"}` {
 		t.Fatalf("GET /healthz = %d %q", resp.StatusCode, body)
 	}
+}
 
-	session, err := sdk.NewClient(&sdk.Implementation{Name: "t", Version: "0"}, nil).
-		Connect(ctx, &sdk.StreamableClientTransport{Endpoint: srv.URL + "/mcp"}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer session.Close()
-
-	tools, err := session.ListTools(ctx, nil)
+// assertToolsList proves tools/list over the real binary returns exactly the
+// two tools, each L1 and read-only.
+func assertToolsList(t *testing.T, session *sdk.ClientSession) {
+	t.Helper()
+	tools, err := session.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("tools/list: %v", err)
 	}
 	var names []string
 	for _, tool := range tools.Tools {
 		names = append(names, tool.Name)
-	}
-	sort.Strings(names)
-	for _, tool := range tools.Tools {
 		if tool.Meta["com.warehouse/authority"] != "L1" || tool.Annotations == nil || !tool.Annotations.ReadOnlyHint {
 			t.Errorf("tool %q is not an L1 read-only tool: meta=%v annotations=%+v", tool.Name, tool.Meta, tool.Annotations)
 		}
 	}
+	sort.Strings(names)
 	if got := strings.Join(names, ","); got != "get_product_content,list_categories" {
 		t.Fatalf("tools/list = %s, want exactly get_product_content,list_categories", got)
 	}
+}
 
+// assertReads calls each tool against what the write use cases persisted.
+func assertReads(t *testing.T, session *sdk.ClientSession, catID string) {
+	t.Helper()
 	got := callOK(t, session, "get_product_content", map[string]any{"catalogItemId": "sku-mcp"})
 	if got["state"] != "PUBLISHED" || got["primaryCategoryId"] != catID || got["description"] != "A steel bottle." {
 		t.Fatalf("get_product_content = %v", got)
@@ -157,14 +176,9 @@ func TestMCPAgainstPostgres_ReadsWhatTheAPIWroteAndNeverWrites(t *testing.T) {
 	if cats, _ := tree["categories"].([]any); len(cats) != 1 || tree["version"] != float64(1) {
 		t.Fatalf("list_categories = %v", tree)
 	}
-	res, err := session.CallTool(ctx, &sdk.CallToolParams{Name: "get_product_content", Arguments: map[string]any{"catalogItemId": "ghost"}})
+	res, err := session.CallTool(context.Background(), &sdk.CallToolParams{Name: "get_product_content", Arguments: map[string]any{"catalogItemId": "ghost"}})
 	if err != nil || !res.IsError {
 		t.Fatalf("an unknown item must be a tool error, got %+v, %v", res, err)
-	}
-
-	totalAfter, unpublishedAfter := outboxCounts(t, url)
-	if totalAfter != totalBefore || unpublishedAfter != unpublishedBefore {
-		t.Fatalf("outbox rows %d/%d unpublished before, %d/%d after: a read-only server wrote", totalBefore, unpublishedBefore, totalAfter, unpublishedAfter)
 	}
 }
 
