@@ -20,6 +20,7 @@ are in [Configuration](/docs/operations/configuration); procedures in the
 | `cmd/api` exits 1 at once: `DATABASE_URL is required: this context runs on real Postgres, there is no in-memory mode` | `DATABASE_URL` unset | the message names the variable; nothing was opened or bound | set it (chart: `database.url` or `database.existingSecret`). The chart refuses to render without it |
 | `KAFKA_BROKERS is required: this context runs on real Kafka (outbox relay, consumers, /readyz)` | unset or only blanks/commas | same | set a comma-separated list (chart: `kafka.brokers`) |
 | `OFFER_AVAILABILITY_CONSUMER_GROUP is required: the consumer always runs on real Kafka` | group id unset | same | set a stable id such as `product-content-offer-availability` (chart: `config.offerAvailabilityConsumerGroup`) |
+| `cmd/mcp` exits 1: `DATABASE_URL is required: this context runs on real Postgres, there is no in-memory mode` | `DATABASE_URL` unset | `cmd/mcp/main.go` (`buildDeps`); nothing was opened or bound | set it (chart: `database.url` or `database.existingSecret`) |
 | `cmd/a2a` exits 1: `A2A_AGENT_URL is required ...` or `A2A_AGENT_URL="..." is not an absolute http(s) URL` | missing, relative or schemeless URL | `cmd/a2a/main.go` (`checkAgentURL`); both mandatory problems are reported together | set an absolute URL such as `http://<release>-a2a.<ns>.svc.cluster.local:8093/` |
 | Pod stuck before ready, logs `retrying ... op=run migrations` / `ping postgres` then `service exited with error` | Postgres unreachable, wrong DSN, or Istio sidecar not ready; after 5 attempts (1+2+4+8 s) the last error is returned | the `err` field of the `retrying` WARN lines | fix the DSN/network. The startup probe allows about 60 s, so a slow sidecar is tolerated, a dead database is not |
 | Boot hangs on `run migrations` | `MIGRATIONS_DATABASE_URL` (or `DATABASE_URL` fallback) goes through a transaction-mode pooler; golang-migrate's session advisory lock cannot be taken | compare the migrations DSN with the pooled one | point `MIGRATIONS_DATABASE_URL` at a direct, session-mode connection (chart: `database.migrationsExistingSecretKey`) |
@@ -33,6 +34,7 @@ are in [Configuration](/docs/operations/configuration); procedures in the
 | `GET /readyz` returns `503` `application/problem+json`, `type` `/problems/dependency-unavailable`, detail `not ready: kafka` (or `postgres`) | the broker did not answer a metadata request, or the Postgres ping failed, within 2 s | WARN `readiness: dependency is not ready` with `dependency` and `error`; verdicts are cached 3 s | restore the dependency. Topics are not checked, only reachability |
 | `GET /readyz` returns `503` `{"status":"not_ready"}` | the process received SIGTERM and is draining | pod is terminating | none, expected for `SHUTDOWN_DRAIN_DELAY` |
 | Pod restarts; last log `outbox-relay stopped unexpectedly` or `offer-availability stopped unexpectedly: exiting so the orchestrator restarts the service` | the relay or the consumer returned on its own; the consumer exits after 10 consecutive transient fetch failures or on a non-transient reader error | `kubectl logs --previous` for the preceding `consumer stopped` / `outbox relay stopped` ERROR | fix the broker; the restart is by design. Alert `WarehousePodRestarting` fires at 2 restarts in 15 min |
+| MCP pod `Ready` but tool calls fail | `cmd/mcp` probes only `/healthz` (process up), not Postgres | call a tool; look for `mcp tool failed with an unexpected error` | restore Postgres |
 | A2A pod `Ready` but answers fail | `cmd/a2a` probes only `/healthz` (process up), not Postgres | call the agent; look for `a2a skill failed` | restore Postgres |
 
 ## REST responses
@@ -69,6 +71,15 @@ All errors are RFC 9457 `application/problem+json` (`internal/adapters/inbound/h
 | Consumer partition seems frozen, ERROR `offer-availability dead-letter publish failed; retrying the same message` repeats | the DLQ publish itself fails (broker down or topic not ready); it is retried forever on purpose | log `error` field | restore the broker; nothing is dropped |
 | WARN `skipping a message that is not a valid CloudEvent` | a producer sent the retired flat envelope or non-JSON | `error` field | producer must send CloudEvents 1.0 structured mode with `content-type: application/cloudevents+json` |
 | A discontinued item still shows PUBLISHED content | `CatalogItemDiscontinued` not yet consumed | consumer lag | the `RetireOnDiscontinue` policy retires PUBLISHED content (reason `DISCONTINUED`, raises `ProductContentRetired`) and DRAFT content silently when the event is applied |
+
+## MCP
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| A tool call answers `isError` with text `not-found: ...` | no content for that `catalogItemId`, or the id is over 128 characters or carries a NUL | check `GET /product-contents/{id}` on the API |
+| A tool call answers `isError` with text `invalid-argument: catalogItemId is required` | a blank `catalogItemId` | send the id |
+| `tools/call` of a content write (create, revise, publish, retire, discard) is refused as an unknown tool | by design: the MCP surface is read-only, every write is REST | use the REST route |
+| `helm template` fails with `mcp.extraEnv sets ...` or `mcp.httpAddr is ...` | the chart refuses `*_MODE`, Kafka, outbox, consumer-group and chart-owned names in `mcp.extraEnv`, and an `MCP_ADDR` port that differs from `mcp.service.targetPort` | the message names the value |
 
 ## A2A
 
