@@ -6,9 +6,11 @@ Go module `github.com/IQVO/product-content`). It enriches a network catalogue
 item with everything a product page needs and the item master does not have:
 description, bullets, attributes, media (URLs only, no upload) and the ONE live
 category tree. The title stays the item master's. It owns the `ProductContent`
-and `CategoryTree` aggregates and ships two binaries: `cmd/api` (REST, the
+and `CategoryTree` aggregates and ships three binaries: `cmd/api` (REST, the
 outbox relay, the offer-availability consumer and the RetireOnDiscontinue
-policy in one process) and `cmd/a2a` (read-only Agent2Agent agent, ADR 0006).
+policy in one process), `cmd/a2a` (read-only Agent2Agent agent, ADR 0006) and
+`cmd/mcp` (read-only MCP server, `:8090`, tools `get_product_content` and
+`list_categories`, authority L1, ADR 0008).
 
 ## Hard rules (each one is fitness-tested or decided in an ADR)
 
