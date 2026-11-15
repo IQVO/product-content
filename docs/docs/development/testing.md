@@ -25,7 +25,7 @@ tests and spec linting.
 | Integration (testcontainers) | 9 top-level tests (not counting `TestMain`) behind `//go:build integration` in 10 files: `cmd/api` 2, `cmd/mcp` 1, `cmd/a2a` 1, `inbound/http` 2, `outbound/postgres` 3 | `make integration` |
 | Golden bytes | one `*.golden.json` per published event type in `internal/adapters/outbound/kafka/testdata` (3 files), compared byte for byte | `make test` |
 | Architecture fitness | 40 top-level test functions in `internal/architecture` | `make arch-test` |
-| Mutation (gremlins) | efficacy 95, mutant coverage 95 (`.gremlins.yaml`); measured 100% / 100% on the three domain packages | `make mutation`, `make mutation-full` |
+| Mutation (gremlins) | efficacy 99, mutant coverage 99 (`.gremlins.yaml`); measured 100% / 100% on the three domain packages | `make mutation`, `make mutation-full` |
 | Spec linting (Spectral) | OpenAPI and AsyncAPI, `--fail-severity=warn` | CI `api-lint` |
 | Helm chart tests | `charts/product-content/tests/render_test.sh`, `test_service_selectors.py` | CI `chart-tests` |
 | Contract against a running service (schemathesis) | **none**: no schemathesis configuration and no CI job | none |
@@ -158,10 +158,10 @@ skips (`TestPostgresIntegrationTestsUseTestcontainers`,
 ## Mutation testing
 
 `.gremlins.yaml` sets `workers: 1`, `timeout-coefficient: 30` and the
-thresholds `efficacy: 95` and `mutant-coverage: 95`. Gremlins fails when the
+thresholds `efficacy: 99` and `mutant-coverage: 99`. Gremlins fails when the
 measured value is less than or equal to the threshold, so a threshold sits
 strictly below what the code achieves. The file records a measurement of
-2026-10-25: `shared` 31 mutants, `category` 46, `content` 76, each at 100%
+2026-11-15: `shared` 31 mutants, `category` 47, `content` 76, each at 100%
 efficacy and 100% mutant coverage. Only the domain is mutated; use cases and
 adapters are not.
 
