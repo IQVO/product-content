@@ -43,8 +43,9 @@ All errors are RFC 9457 `application/problem+json` (`internal/adapters/inbound/h
 
 | Status and `type` | Cause | Fix |
 | --- | --- | --- |
-| `400 idempotency-key-required` | a POST without `Idempotency-Key`, or one longer than 128 characters | send a key of 1 to 128 characters, unique per logical request |
-| `409 idempotency-key-reused` | the same key and route with a different method, path, query or body | use a new key for a different request; the same key replays the stored first response (header `Idempotency-Replayed: true`) for 24 h. A 5xx is never stored |
+| `400 idempotency-key-required` | a POST without `Idempotency-Key` | send a key of 1 to 128 printable ASCII characters, unique per logical request |
+| `400 idempotency-key-invalid` | an `Idempotency-Key` longer than 128 characters or with a character outside printable ASCII | send a key of 1 to 128 printable ASCII characters |
+| `409 idempotency-key-reused` | the same key with a different method, path or body (the key is global, another route counts) | use a new key for a different request; the same key replays the stored first response (header `Idempotency-Replayed: true`) for 24 h. A 5xx is never stored |
 | `400 malformed-request` | invalid JSON, an unknown field, a wrong type, a body over 64 KiB, or a NUL character in path, query or body | fix the request |
 | `422 unknown-catalog-item` | no `CatalogItemCreated` for this id has been consumed yet (the local `catalog_item_view` does not know it) | check the item exists in the network, that the consumer is running (`consumer running` log, group lag) and that the event reached `retailnetwork.offer-availability.events`; retry once it is applied |
 | `422 item-discontinued` | `CatalogItemDiscontinued` was consumed for the item | none: content is neither created nor published for a discontinued item |

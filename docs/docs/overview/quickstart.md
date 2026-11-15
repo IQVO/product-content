@@ -80,7 +80,8 @@ curl -s http://localhost:8090/healthz
 ## First calls
 
 Every state-changing POST needs an `Idempotency-Key` header (1 to 128
-characters); without it the answer is `400 idempotency-key-required`. All
+printable ASCII characters); without it the answer is `400 idempotency-key-required`, with a key over 128
+characters `400 idempotency-key-invalid`. All
 errors are RFC 9457 `application/problem+json`.
 
 ### 1. Build a category tree
