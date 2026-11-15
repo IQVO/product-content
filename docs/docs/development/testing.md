@@ -20,7 +20,7 @@ tests and spec linting.
 | Unit, application | 33 in `internal/application/{usecases,outbox,readmodel}` (`usecases` 31, `outbox` 1, `readmodel` 1) | `make test` |
 | Unit and httptest, adapters and binaries | `inbound/http` 20, `inbound/kafka` 33, `inbound/a2a` 13, `inbound/mcp` 20, `inbound/requestlog` 4, `outbound/kafka` 16, `outbound/outbox` 5, `outbound/telemetry` 11, `outbound/postgres` 3 (outbox trace unit tests), `kafka/cloudevents` 6, `cmd/api` 16, `cmd/a2a` 9, `cmd/mcp` 12, `bootretry` 6 | `make test` |
 | Coverage gate | 90% over `./internal/domain/...,./internal/application/...` (`COVERAGE_THRESHOLD` in the `Makefile`) | `make coverage` |
-| BDD (godog / Gherkin) | 3 feature files, **13 scenarios** (5 + 4 + 4), run by `internal/bdd/features_test.go` with `Strict: true` | `make bdd` |
+| BDD (godog / Gherkin) | 8 feature files, **101 scenario definitions** (**123 executed** with the `Examples` rows expanded), run by `internal/bdd/features_test.go` with `Strict: true` | `make bdd` |
 | Repository contract | one suite, six sub-suites (`contents`, `tree`, `items`, `inbox`, `unitofwork`, `idempotency`), run against the in-memory store and against Postgres | `make test` (memory), `make integration` (Postgres) |
 | Integration (testcontainers) | 9 top-level tests (not counting `TestMain`) behind `//go:build integration` in 10 files: `cmd/api` 2, `cmd/mcp` 1, `cmd/a2a` 1, `inbound/http` 2, `outbound/postgres` 3 | `make integration` |
 | Golden bytes | one `*.golden.json` per published event type in `internal/adapters/outbound/kafka/testdata` (3 files), compared byte for byte | `make test` |
@@ -108,16 +108,27 @@ go test ./internal/application/usecases -v
 
 ## BDD (godog)
 
-`features/` holds three files and 13 scenarios:
+`features/` holds eight files: 101 `Scenario` and `Scenario Outline` definitions
+(`git grep -c -E "^[[:space:]]*Scenario" -- features`), which the runner expands
+to 123 executed scenarios (`123 scenarios (123 passed)` from
+`go test ./internal/bdd -run TestFeatures -count=1 -v`).
 
-| File | Scenarios | Covers |
+| File | Definitions / executed | Covers |
 | --- | --- | --- |
-| `content_lifecycle.feature` | 4 | complete draft published with one event, incomplete draft refused (`incomplete-content`), discarded draft, content of an unknown item (`unknown-catalog-item`) |
-| `catalogue_events.feature` | 4 | `CatalogItemDiscontinued` retires published content (event raised) and drafts (no event), redelivery changes nothing, content for a discontinued item is refused (`item-discontinued`) |
-| `categories_and_api.feature` | 5 | nested categories and `CategoryTreePublished` count, `duplicate-sibling-name`, `idempotency-key-required`, replay, `idempotency-key-reused` |
+| `content_lifecycle.feature` | 4 / 4 | complete draft published with one event, incomplete draft refused (`incomplete-content`), discarded draft, content of an unknown item (`unknown-catalog-item`) |
+| `catalogue_events.feature` | 4 / 4 | `CatalogItemDiscontinued` retires published content (event raised) and drafts (no event), redelivery changes nothing, content for a discontinued item is refused (`item-discontinued`) |
+| `categories_and_api.feature` | 6 / 6 | nested categories and `CategoryTreePublished` count, `duplicate-sibling-name`, `idempotency-key-required`, replay, `idempotency-key-reused` |
+| `revision_and_reads.feature` | 9 / 9 | revise and republish, retired content never changes, reads and paging, category list and move, content limits, platform endpoints |
+| `content_rules.feature` | 32 / 51 | the documented state transitions of `ProductContent`: `ReviseDraft`, `ReviseContent`, publish, retire, discard, the illegal edges, completeness |
+| `category_rules.feature` | 21 / 21 | the category tree: four levels, moves, sibling names, name limits, tree versions |
+| `catalogue_policy_rules.feature` | 14 / 17 | the catalogue facts and `RetireOnDiscontinue`: creation first, no revival, redelivery on the CloudEvents id, poison ids |
+| `api_rules.feature` | 11 / 11 | Idempotency-Key (128 accepted, 129 malformed, reuse across resources, stored failures, replays) and the list paging rules |
+
+The four `*_rules.feature` files pin rules documented in the Product Content
+documentation and in the troubleshooting slug table.
 
 The runner `internal/bdd/features_test.go` (`TestFeatures`, step files
-`steps_http_test.go` and `steps_assertions_test.go`) wires the **real router and
+`steps_http_test.go`, `steps_assertions_test.go`, `steps_wave2_test.go` and `steps_rules_test.go`) wires the **real router and
 use cases over the in-memory store** with a frozen clock, so the suite is fast
 and needs no Docker. `Strict: true` fails the run on an undefined or pending
 step. The module root holds no `.go` file (`TestNoGoFilesAtRepoRoot`).

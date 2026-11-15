@@ -238,7 +238,7 @@ sequenceDiagram
     participant PG as Postgres
     participant UC as use case
     CM->>ID: POST with Idempotency-Key k
-    ID->>PG: select idempotency_keys for route and k
+    ID->>PG: select idempotency_keys for k
     alt no record
         ID->>UC: run the command
         UC-->>ID: response
@@ -255,5 +255,5 @@ sequenceDiagram
 
 Source: `internal/adapters/inbound/http/idempotency.go`.
 
-A missing or over-long key is `400 idempotency-key-required` before anything runs. A
+A missing key is `400 idempotency-key-required` and a key over 128 characters or outside printable ASCII is `400 idempotency-key-invalid`, both before anything runs. A
 record older than 24 hours counts as absent.
