@@ -25,11 +25,14 @@ unleash:
     # 2026-11-15 with gremlins v0.6.0 (`make mutation-full`, then the CI-equivalent
     # `make mutation` per package): shared 31/31, category 47/47, content 76/76
     # killed (154 mutants): 100% efficacy and 100% mutant coverage in each, 0 lived,
-    # 0 not covered. 99 is the fleet standard and sits below all three. Measure
+    # 0 not covered. 99 is the fleet standard and sits below all three.
+    # The values are plain integers ON PURPOSE: gremlins v0.6.0 reads them with a
+    # float64/int type assertion, so a quoted string ("99") is silently read as 0
+    # and the gate never fails. Measure
     # first (`make mutation-full`), THEN set these -- don't guess/copy a
     # sibling repo's numbers, every domain layer's mutant survivability
     # differs. See HARNESS.md's mutation-testing section for the
     # tagless-switch-under-reports pitfall before assuming a low number
     # means missing tests.
-    efficacy: "99"
-    mutant-coverage: "99"
+    efficacy: 99
+    mutant-coverage: 99
