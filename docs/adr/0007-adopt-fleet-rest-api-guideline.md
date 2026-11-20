@@ -45,6 +45,12 @@ Hard cutover, no aliases, no dual routes, no toggles; enforced by `.spectral.yam
    work); 2xx and 4xx are stored for 24 hours, a 5xx or panic rolls back and is not
    stored. The existing `idempotency_keys` table is reused with the `route` column
    held constant (`''`), so no migration is needed.
+
+   > **2026-11-20 — ADR 0009:** "2xx and 4xx are stored" is now per problem type:
+   > every catalogue entry declares a replay class (FINAL, OUTCOME, RETRYABLE);
+   > a RETRYABLE refusal (nothing committed, the answer depends on state that can
+   > change) is not stored and its key is released. See
+   > [ADR 0009](./0009-every-problem-type-has-a-replay-class.md).
 3. **Pagination.** `GET /product-contents` takes `limit` (1 to 500, default 100) and
    an opaque `cursor` (base64url JSON of the sort key and id) and answers
    `{items, nextCursor}`; keyset order `catalogItemId`, in Postgres and in memory.

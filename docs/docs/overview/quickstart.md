@@ -107,6 +107,9 @@ most four levels deep. Read the whole tree with `GET /categories` (`version` and
 service has seen `CatalogItemCreated` for that id on
 `retailnetwork.offer-availability.events` (it builds its own
 `catalog_item_view` from the network's events and never calls the network).
+The refusal is RETRYABLE (ADR 0009): it is not stored under the
+`Idempotency-Key`, so retrying the same key after the event arrived creates
+the content.
 Locally, publish the event yourself as a structured-mode CloudEvent:
 
 ```sh

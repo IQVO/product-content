@@ -13,6 +13,8 @@ import (
 	httpadapter "github.com/IQVO/product-content/internal/adapters/inbound/http"
 	"github.com/IQVO/product-content/internal/adapters/outbound/postgres"
 	"github.com/IQVO/product-content/internal/adapters/outbound/postgres/pgtx"
+	"github.com/IQVO/product-content/internal/application/ports"
+	"github.com/IQVO/product-content/internal/domain/content"
 	"github.com/IQVO/product-content/internal/testing/pgtest"
 )
 
@@ -67,17 +69,17 @@ func poisonMiddleware(t *testing.T, h http.Handler) (http.Handler, func(key stri
 	return httpadapter.RequireIdempotencyKey(postgres.NewIdempotencyStore(pool), wallClock{})(h), count
 }
 
-// TestIdempotencyAbortedTransactionKeeps409: a handler that loses a unique-index
-// race answers 409, not 500; the 409 is committed and replayed, and a retry
-// with the same key never re-runs the handler.
-func TestIdempotencyAbortedTransactionKeeps409(t *testing.T) {
+// TestIdempotencyAbortedTransactionAnswersTheRefusalNotA500: a handler that
+// loses a unique-index race answers its typed refusal, not a 500 — and since
+// concurrent-update is RETRYABLE (ADR 0009), the refusal is not stored: the key
+// is released and the same key executes again (still the truthful 409 while the
+// race keeps losing).
+func TestIdempotencyAbortedTransactionAnswersTheRefusalNotA500(t *testing.T) {
 	var calls atomic.Int64
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		poisonTx(t, r)
-		w.Header().Set("Content-Type", "application/problem+json")
-		w.WriteHeader(http.StatusConflict)
-		_, _ = w.Write([]byte(`{"status":409}`))
+		httpadapter.WriteError(w, r, ports.ErrConcurrentUpdate)
 	})
 	mw, count := poisonMiddleware(t, h)
 
@@ -86,13 +88,44 @@ func TestIdempotencyAbortedTransactionKeeps409(t *testing.T) {
 	if first.Code != http.StatusConflict {
 		t.Fatalf("first = %d %s, want the truthful 409", first.Code, first.Body.String())
 	}
-	if n := count("k-poison"); n != 1 {
-		t.Fatalf("the 409 outcome was not committed: %d rows", n)
+	if n := count("k-poison"); n != 0 {
+		t.Fatalf("a RETRYABLE refusal over an aborted transaction left %d rows, want 0: the key is released", n)
+	}
+	retry := httptest.NewRecorder()
+	mw.ServeHTTP(retry, keyedPost("k-poison"))
+	if retry.Code != http.StatusConflict || retry.Header().Get(httpadapter.ReplayedHeader) != "" {
+		t.Fatalf("retry = %d replayed=%q, want a fresh 409 (the released key runs again)", retry.Code, retry.Header().Get(httpadapter.ReplayedHeader))
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("handler ran %d times, want 2: a released refusal never pins the key", calls.Load())
+	}
+}
+
+// TestIdempotencyAbortedTransactionKeepsAFinal4xx: a FINAL refusal over an
+// aborted transaction is healed (the handler's savepoint is rolled back, the
+// transaction survives) and is still stored and replayed: the release of
+// RETRYABLE answers must not cost the store its 4xx memory.
+func TestIdempotencyAbortedTransactionKeepsAFinal4xx(t *testing.T) {
+	var calls atomic.Int64
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		poisonTx(t, r)
+		httpadapter.WriteError(w, r, content.ErrTooManyBullets)
+	})
+	mw, count := poisonMiddleware(t, h)
+
+	first := httptest.NewRecorder()
+	mw.ServeHTTP(first, keyedPost("k-poison-422"))
+	if first.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("first = %d %s, want the healed 422", first.Code, first.Body.String())
+	}
+	if n := count("k-poison-422"); n != 1 {
+		t.Fatalf("the FINAL 422 outcome was not committed: %d rows", n)
 	}
 	replay := httptest.NewRecorder()
-	mw.ServeHTTP(replay, keyedPost("k-poison"))
-	if replay.Code != http.StatusConflict || replay.Header().Get(httpadapter.ReplayedHeader) != "true" {
-		t.Fatalf("replay = %d replayed=%q, want the cached 409", replay.Code, replay.Header().Get(httpadapter.ReplayedHeader))
+	mw.ServeHTTP(replay, keyedPost("k-poison-422"))
+	if replay.Code != http.StatusUnprocessableEntity || replay.Header().Get(httpadapter.ReplayedHeader) != "true" {
+		t.Fatalf("replay = %d replayed=%q, want the cached 422", replay.Code, replay.Header().Get(httpadapter.ReplayedHeader))
 	}
 	if replay.Body.String() != first.Body.String() {
 		t.Fatalf("replay body = %s, want %s", replay.Body.String(), first.Body.String())

@@ -49,6 +49,12 @@ func registerAssertions(sc *godog.ScenarioContext, w *world) {
 		}
 		return nil
 	})
+	sc.Step(`^the response is not marked replayed$`, func() error {
+		if got := w.apiHeader.Get("Idempotency-Replayed"); got != "" {
+			return fmt.Errorf("Idempotency-Replayed = %q, want it absent", got)
+		}
+		return nil
+	})
 	sc.Step(`^(\d+) "([^"]*)" events were published$`, func(n int, name string) error {
 		got := 0
 		for _, e := range w.store.Outbox().Events() {
