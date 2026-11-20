@@ -122,7 +122,7 @@ to 123 executed scenarios (`123 scenarios (123 passed)` from
 | `content_rules.feature` | 32 / 51 | the documented state transitions of `ProductContent`: `ReviseDraft`, `ReviseContent`, publish, retire, discard, the illegal edges, completeness |
 | `category_rules.feature` | 21 / 21 | the category tree: four levels, moves, sibling names, name limits, tree versions |
 | `catalogue_policy_rules.feature` | 14 / 17 | the catalogue facts and `RetireOnDiscontinue`: creation first, no revival, redelivery on the CloudEvents id, poison ids |
-| `api_rules.feature` | 11 / 11 | Idempotency-Key (128 accepted, 129 malformed, reuse across resources, stored failures, replays) and the list paging rules |
+| `api_rules.feature` | 11 / 11 | Idempotency-Key (128 accepted, 129 malformed, reuse across resources, released retryable refusals, replays) and the list paging rules |
 
 The four `*_rules.feature` files pin rules documented in the Product Content
 documentation and in the troubleshooting slug table.

@@ -23,7 +23,11 @@ info:
     are not-found (404), illegal-transition (409), concurrent-update (409) and
     validation-failed (422), plus one kebab-case slug per Err of the model.
     Every POST takes an Idempotency-Key header (24 hours); PUT and DELETE
-    are idempotent by method. Routes follow the fleet REST API guideline:
+    are idempotent by method. A 2xx and a FINAL refusal are stored under the
+    key and replayed to a retry; a RETRYABLE refusal (nothing committed, the
+    answer depends on state that can change) is not stored: the key is
+    released, a retry executes again, and another request under the released
+    key is new. Routes follow the fleet REST API guideline:
     nouns, never verbs (a lifecycle transition is a transition resource such
     as /revisions or /publications). No authentication.
 servers:
@@ -467,7 +471,12 @@ components:
         characters); a retry reuses it. The same key with the same request
         (method, path, body) replays the stored answer with
         Idempotency-Replayed: true; the same key with another request is 409
-        idempotency-key-reused. Missing is 400 idempotency-key-required,
+        idempotency-key-reused. Stored answers are a 2xx and a FINAL
+        refusal (malformed-request, too-many-*); a RETRYABLE refusal
+        (unknown-catalog-item, unknown-category, not-found,
+        incomplete-content, concurrent-update, illegal-transition, ...) is
+        not stored and releases the key, so the same key executes the work
+        again. Missing is 400 idempotency-key-required,
         malformed is 400 idempotency-key-invalid.
       schema:
         type: string
@@ -559,7 +568,8 @@ components:
             $ref: '#/components/schemas/Problem'
     Conflict:
       description: >-
-        concurrent-update (another writer got in between the load and the save),
+        concurrent-update (another writer got in between the load and the save;
+        RETRYABLE: not stored, the key is released and a retry executes again),
         a business conflict, or idempotency-key-reused (the Idempotency-Key was
         already used with a different method, path or body).
       content:
