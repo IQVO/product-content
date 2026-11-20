@@ -18,3 +18,4 @@ sidebar_position: 0
 | [0006](./0006-a2a-inbound-adapter.md) | A2A inbound adapter | Accepted (2026-10-30) |
 | [0007](./0007-adopt-fleet-rest-api-guideline.md) | Adopt the fleet REST API guideline | Accepted (2026-11-01) |
 | [0008](./0008-read-only-mcp-server.md) | A read-only MCP server | Accepted (2026-11-14) |
+| [0009](./0009-every-problem-type-has-a-replay-class.md) | Every problem type has a replay class; a RETRYABLE refusal is not stored | Accepted (2026-11-20) |
