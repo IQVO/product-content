@@ -109,7 +109,8 @@ for all three probes; they have no `/readyz`.
 | Transient broker-connection failures on fetch | up to 10 consecutive, then the worker fails and the process exits | `internal/adapters/inbound/kafka/kafka.go` (`maxTransientFetchFailures`) |
 | `/readyz` verdict cache / check timeout | 3 s / 2 s | `internal/adapters/inbound/http/readiness.go` |
 | Request body limit | 64 KiB | `internal/adapters/inbound/http/response.go` |
-| `Idempotency-Key` length / record TTL | 1 to 128 characters / 24 h | `internal/adapters/inbound/http/idempotency.go`, `internal/application/idempotency/idempotency.go` |
+| `Idempotency-Key` length / record TTL | 1 to 128 characters / 24 h (`idempotency.TTL`, one constant for the replay read and the purge) | `internal/adapters/inbound/http/idempotency.go`, `internal/application/idempotency/idempotency.go` |
+| Idempotency-key retention loop | purges at start then hourly, batches of 1000 (fixed, not configurable) | `cmd/api/retention.go`, `internal/adapters/outbound/postgres/idempotency.go` (`PurgeExpired`) |
 | List page size default | 100 | `internal/application/usecases/queries.go` (`DefaultPageSize`) |
 | Topic produced | `retailnetwork.product-content.events` | `internal/adapters/outbound/kafka/encoder.go` (`Topic`) |
 | Topic consumed | `retailnetwork.offer-availability.events` | `internal/adapters/inbound/kafka/offer_availability.go` |

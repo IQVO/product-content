@@ -186,7 +186,12 @@ telemetry, nothing else); the trace continues across Kafka in the
 Contract: [`apis/openapi.yaml`](apis/openapi.yaml). No authentication. Errors
 are RFC 9457 problem details (`application/problem+json`). Every
 state-changing request takes an `Idempotency-Key` header; a retry with the
-same key replays the first response (`Idempotency-Replayed: true`), the same key on a different request is `409`; lists are `{items,nextCursor}` pages (`limit`, `cursor`).
+same key replays the first response (`Idempotency-Replayed: true`), the same
+key on a different request is `409`. Not every refusal is replayed (ADR 0009):
+a refusal that committed nothing and depends on state that can change —
+`unknown-catalog-item`, `unknown-category`, `not-found`, `incomplete-content`,
+`concurrent-update`, `illegal-transition` — is not stored; the key is released
+and a retry executes again. Lists are `{items,nextCursor}` pages (`limit`, `cursor`).
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -313,7 +318,7 @@ lefthook install
 go test ./... -race                        # unit suites
 make coverage                              # domain+application coverage, CI gate >= 90%
 go test -tags=integration ./...            # testcontainers Postgres/Kafka (Docker only)
-go test ./features/ -run TestFeatures -v   # godog/BDD over the real HTTP API
+go test ./internal/bdd -run TestFeatures -v # godog/BDD over the real HTTP API
 go test ./internal/architecture/... -v     # architecture fitness tests (arch-go)
 gremlins unleash ./internal/domain         # mutation, thresholds in .gremlins.yaml
 ```

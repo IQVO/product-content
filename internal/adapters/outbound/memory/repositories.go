@@ -194,6 +194,32 @@ func (o *Outbox) Events() []shared.Event {
 // idempotency.TTL are treated as absent.
 type IdempotencyStore struct{ s *Store }
 
+// PurgeExpired implements ports.IdempotencyStore (retention): it deletes at
+// most limit answers that are no longer replayed (age beyond
+// idempotency.TTL), oldest first, and returns how many. Do holds the same
+// mutex while it runs fn, so a purge waits for a request in flight and then
+// finds its answer live.
+func (i *IdempotencyStore) PurgeExpired(_ context.Context, limit int) (int, error) {
+	i.s.mu.Lock()
+	defer i.s.mu.Unlock()
+	expired := make([]string, 0, len(i.s.idempotency))
+	for key, rec := range i.s.idempotency {
+		if i.s.now().Sub(rec.CreatedAt) > idempotency.TTL {
+			expired = append(expired, key)
+		}
+	}
+	slices.SortFunc(expired, func(a, b string) int {
+		return i.s.idempotency[a].CreatedAt.Compare(i.s.idempotency[b].CreatedAt)
+	})
+	if limit < len(expired) {
+		expired = expired[:max(limit, 0)]
+	}
+	for _, key := range expired {
+		delete(i.s.idempotency, key)
+	}
+	return len(expired), nil
+}
+
 // Do implements ports.IdempotencyStore. Like a unit of work it holds the store
 // while fn runs, so same-key requests are serialised and a failed or 5xx fn
 // leaves no write behind.
@@ -216,7 +242,7 @@ func (i *IdempotencyStore) Do(ctx context.Context, key, requestHash string, at t
 	if err != nil {
 		return idempotency.Record{}, false, err
 	}
-	if rec.Status >= http.StatusInternalServerError {
+	if rec.Release || rec.Status >= http.StatusInternalServerError {
 		return rec, false, nil
 	}
 	rec.RequestHash, rec.CreatedAt = requestHash, at

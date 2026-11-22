@@ -51,6 +51,21 @@ const claimSQL = `
 
 const storeSQL = `UPDATE idempotency_keys SET status = $2, content_type = $3, body = $4 WHERE route = '' AND key = $1`
 
+// purgeSQL deletes at most one bounded batch of expired key rows, oldest
+// first (idempotency_keys_created_idx). The subquery locks its candidates
+// with SKIP LOCKED, so a row a request's claim transaction holds is left
+// aside, and the age test is repeated on the DELETE itself, so a row a
+// request just refreshed (the claim takeover resets created_at) is never
+// deleted. It takes no advisory lock and never waits on a row lock: an
+// expired row is invisible to Do, so a request that holds its key neither
+// waits for the purge nor sees it.
+const purgeSQL = `DELETE FROM idempotency_keys
+WHERE created_at <= now() - make_interval(secs => $1)
+AND (route, key) IN (
+	SELECT route, key FROM idempotency_keys
+	WHERE created_at <= now() - make_interval(secs => $1)
+	ORDER BY created_at LIMIT $2 FOR UPDATE SKIP LOCKED)`
+
 const readSQL = `
 	SELECT request_hash, status, content_type, body, created_at FROM idempotency_keys
 	WHERE route = '' AND key = $1 AND created_at > now() - make_interval(secs => $2)`
@@ -93,8 +108,8 @@ func (s *IdempotencyStore) attempt(ctx context.Context, key, requestHash string,
 	if rec, err = fn(pgtx.With(ctx, tx)); err != nil {
 		return idempotency.Record{}, false, false, err
 	}
-	if rec.Status >= httpServerError {
-		return rec, false, false, nil // rolled back by the defer: a 5xx is never stored
+	if rec.Release || rec.Status >= httpServerError {
+		return rec, false, false, nil // rolled back by the defer, key row included: a released answer and a 5xx are never stored
 	}
 	if err := healAbortedHandler(ctx, tx, rec.Status); err != nil {
 		return idempotency.Record{}, false, false, err
@@ -138,6 +153,16 @@ func healAbortedHandler(ctx context.Context, tx pgx.Tx, status int) error {
 		return fmt.Errorf("handler answered %d over an aborted transaction: %w", status, relErr)
 	}
 	return nil
+}
+
+// PurgeExpired implements ports.IdempotencyStore (retention): one bounded
+// batch of expired rows per call, oldest first.
+func (s *IdempotencyStore) PurgeExpired(ctx context.Context, limit int) (int, error) {
+	tag, err := s.pool.Exec(ctx, purgeSQL, ttlSeconds(), limit)
+	if err != nil {
+		return 0, fmt.Errorf("idempotency purge: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
 }
 
 // replay reads the committed record that made the claim fail; it asks for a new

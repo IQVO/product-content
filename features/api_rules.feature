@@ -3,8 +3,10 @@
 # commit", the Idempotency-Key rules, troubleshooting "REST responses") and for
 # the paged read product-discovery bootstraps from.
 Feature: API conventions and the bootstrap read from the documentation
-  A repeated key returns the stored first answer, a failed first answer
-  included. The paged read lists content of every state, ordered by item id.
+  A repeated key returns the stored first answer; a refusal that committed
+  nothing and depends on state that can change is not stored (ADR 0009): its
+  key is released and a retry executes again. The paged read lists content of
+  every state, ordered by item id.
 
   Background:
     Given a category "Bottles" exists
@@ -65,7 +67,7 @@ Feature: API conventions and the bootstrap read from the documentation
     And the live category tree has the paths "Bottles, Cups"
     And 2 "CategoryTreePublished" events were published
 
-  Scenario: A failed first answer is the answer the key keeps
+  Scenario: A retryable refusal is not the answer the key keeps
     When the API posts to "/product-contents" with Idempotency-Key "c1" the body:
       """
       {"catalogItemId":"sku-9","description":"Late fact."}
@@ -76,13 +78,14 @@ Feature: API conventions and the bootstrap read from the documentation
       """
       {"catalogItemId":"sku-9","description":"Late fact."}
       """
-    Then the API answers 422 with problem "unknown-catalog-item"
-    And the response is marked replayed
-    When the API posts to "/product-contents" with Idempotency-Key "c2" the body:
+    Then the API answers 201
+    And the response is not marked replayed
+    When the API posts to "/product-contents" with Idempotency-Key "c1" the body:
       """
       {"catalogItemId":"sku-9","description":"Late fact."}
       """
     Then the API answers 201
+    And the response is marked replayed
 
   # --- the bootstrap read -----------------------------------------------
 
