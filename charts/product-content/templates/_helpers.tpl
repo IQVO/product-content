@@ -59,6 +59,15 @@ Fully qualified name of the A2A agent Deployment/Service/HTTPRoute
 {{- printf "%s-a2a" (include "product-content.fullname" . | trunc 59 | trimSuffix "-") }}
 {{- end }}
 
+{{/* agents.colocate (warehouse-infra ADR 0012): "true" iff colocate, mcp and a2a are all on; else empty. */}}
+{{- define "product-content.agentsColocated" -}}
+{{- if and (.Values.agents | default dict).colocate .Values.mcp.enabled .Values.a2a.enabled }}true{{ end -}}
+{{- end }}
+
+{{- define "product-content.agentsFullname" -}}
+{{- printf "%s-agents" (include "product-content.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
 {{/*
 The port of a2a.httpAddr is the container port the probes and the a2a Service
 target (the same rule as requireHttpPort for the api).
