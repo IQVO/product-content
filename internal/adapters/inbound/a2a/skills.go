@@ -195,7 +195,7 @@ func problemFromUseCase(ctx context.Context, err error) *problem {
 	case errors.Is(err, shared.ErrValidation):
 		return problemValidation(err.Error())
 	default:
-		slog.ErrorContext(ctx, "a2a skill failed", "error", err)
+		slog.ErrorContext(ctx, "a2a skill failed", "error", logReplacer.Replace(err.Error()))
 		return problemInternal()
 	}
 }
