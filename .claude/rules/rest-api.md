@@ -33,7 +33,9 @@ agent, not generated: keep it manually accurate.
   `idempotency-key-reused`, replay marked `Idempotency-Replayed: true`); a NUL in the
   path, query or body is a 400 before any key is recorded.
 - Replay classes (ADR 0009): every catalogue entry declares FINAL, OUTCOME or
-  RETRYABLE. A 2xx and a FINAL refusal are stored and replayed for 24 hours; a
+  RETRYABLE. A 2xx and a FINAL refusal are stored and replayed for 24 hours
+  (`idempotency.TTL`; rows older than it are deleted hourly by the retention
+  loop `cmd/api/retention.go` via `PurgeExpired`, ADR 0009 addendum); a
   RETRYABLE refusal (nothing committed, the answer depends on state that can
   change) is not stored — the key is released, the same request executes again
   and another request under the released key is new. No entry is OUTCOME (no

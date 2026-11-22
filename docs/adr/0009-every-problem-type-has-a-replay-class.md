@@ -128,3 +128,19 @@ no key is ever recorded for them). `internal-error` is a 5xx and never stored.
 - Open point: expired `idempotency_keys` rows are only made inert (TTL checked
   at read and at claim takeover), nothing deletes them; the fleet retention
   sweep (order-sourcing #84 shape) is a follow-up.
+
+## Addendum (2026-11-22): the retention sweep landed
+
+The open point above is closed. `ports.IdempotencyStore` grew
+`PurgeExpired(ctx, limit)` — one bounded batch per call of rows older than the
+one `idempotency.TTL` (24 h, unchanged), oldest first, candidates locked
+`FOR UPDATE SKIP LOCKED`, the age test repeated on the DELETE itself, no
+advisory lock — implemented by the Postgres store and the memory double and
+pinned by a shared `repocontract.RunIdempotencyPurge` suite. `cmd/api`
+(`retention.go`) runs it at start and then hourly in batches of 1000, so an
+inert row now also leaves the table instead of only being ignored on read and
+replaced on the next write of the same key (the shape of order-sourcing #84
+and last-mile-delivery #86). The age guard on the replay read — a row past the
+TTL can never answer a replay between expiry and the sweep — already shipped
+with this ADR's replay classes and is now pinned by an integration test over
+the real middleware and Postgres.

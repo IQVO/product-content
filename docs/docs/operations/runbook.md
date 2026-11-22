@@ -13,7 +13,7 @@ PII). It ships **three binaries in one image**:
 
 | Binary | Role | Port | Kubernetes workload |
 | --- | --- | --- | --- |
-| `cmd/api` (image `ENTRYPOINT ./api`) | REST API, the transactional outbox relay and the offer-availability consumer in a single process | `:8080` | Deployment `<release>` (always on) |
+| `cmd/api` (image `ENTRYPOINT ./api`) | REST API, the transactional outbox relay, the offer-availability consumer and the idempotency-key retention loop in a single process | `:8080` | Deployment `<release>` (always on) |
 | `cmd/mcp` (`command: ["/app/mcp"]`) | Read-only MCP server over the same Postgres ([MCP tools](/docs/mcp/tools)): no Kafka, no relay | `:8090` | Deployment `<release>-mcp` (optional, `mcp.enabled`, default off) |
 | `cmd/a2a` (`command: ["/app/a2a"]`) | Read-only A2A agent over the same Postgres: no Kafka, no relay | `:8093` | Deployment `<release>-a2a` (optional, `a2a.enabled`, default off) |
 
@@ -217,12 +217,16 @@ UPDATE outbox_events SET attempts = 0 WHERE id = <id>;
 
 ## Sweepers
 
-None. The service starts no sweeper or scheduler: the only background loops are
-the outbox relay and the offer-availability consumer. In particular nothing
-deletes expired `idempotency_keys` rows (an expired record is ignored on read
-and replaced on the next write of the same key after 24 h) or old
-`processed_events` and published `outbox_events` rows, so those tables only
-grow; prune them by hand when needed (see [Troubleshooting](/docs/operations/troubleshooting)).
+One: the idempotency-key retention loop. `cmd/api` purges `idempotency_keys`
+at start and then hourly, deleting rows older than the 24 h TTL
+(`idempotency.TTL`, the same constant the replay read checks) in batches of
+1000, oldest first, `FOR UPDATE SKIP LOCKED`, no advisory lock, repeating
+until a short batch; a failed pass is logged at ERROR (`idempotency purge
+failed`) and retried at the next tick. A row a request holds is never
+deleted and the purge never blocks a request: an expired row is already
+invisible to reads. Nothing deletes old `processed_events` or published
+`outbox_events` rows, so those tables only grow; prune them by hand when
+needed (see [Troubleshooting](/docs/operations/troubleshooting)).
 
 ## Routine procedures
 
