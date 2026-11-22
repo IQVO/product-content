@@ -1,8 +1,8 @@
 // Command api is product-content's composition root: it wires env config into
 // adapters, adapters into use cases, and use cases into the HTTP router, the
-// offer-availability consumer (ADR 0003) and the outbox relay, all on real Postgres
-// and real Kafka: there is no in-memory mode, no log sink and no consumer that
-// is off.
+// offer-availability consumer (ADR 0003), the outbox relay and the
+// idempotency-key retention loop, all on real Postgres and real Kafka: there
+// is no in-memory mode, no log sink and no consumer that is off.
 //
 // Environment:
 //
@@ -114,8 +114,10 @@ func run(ctx context.Context) error {
 	}
 
 	consumers, closeConsumers := startConsumers(ad, rt, logger)
+	purge, closePurge := startIdempotencyPurge(ad.idempotency, logger)
 	relay, closeRelay := startOutboxRelay(ad.outbox, rt.brokers, logger)
-	return serveUntilSignal(ctx, logger, httpServer, readiness, consumers, closeConsumers, relay, closeRelay)
+	return serveUntilSignal(ctx, logger, httpServer, readiness, append(consumers, purge),
+		func() { closePurge(); closeConsumers() }, relay, closeRelay)
 }
 
 // newReadiness builds the /readyz gate: the drain gate plus a Postgres ping and
@@ -261,9 +263,9 @@ func startOutboxRelay(store outboxrelay.Store, brokers []string, logger *slog.Lo
 
 // serveUntilSignal runs httpServer until SIGINT/SIGTERM (or a listen error),
 // then shuts down in the fleet order: (1) /readyz flips to 503, (2) wait the
-// drain delay, (3) drain HTTP, (4) stop and await the consumers, (5) stop and
-// await the relay LAST so nothing committed above is stranded; the caller's
-// deferred pool.Close runs after all of it.
+// drain delay, (3) drain HTTP, (4) stop and await the consumers and the
+// idempotency purge, (5) stop and await the relay LAST so nothing committed
+// above is stranded; the caller's deferred pool.Close runs after all of it.
 func serveUntilSignal(ctx context.Context, logger *slog.Logger, httpServer *http.Server, readiness *inboundhttp.Readiness,
 	consumers []*worker, closeConsumers func(), relay *worker, closeRelay func(),
 ) error {

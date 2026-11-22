@@ -3,7 +3,9 @@ package idempotency
 
 import "time"
 
-// TTL is how long a key is remembered (D3).
+// TTL is how long a key is remembered (D3): the one age both stores use — a
+// row older than TTL is not replayed (the read's age check) and is deleted by
+// PurgeExpired (retention).
 const TTL = 24 * time.Hour
 
 // Record is the first response stored under a key.
